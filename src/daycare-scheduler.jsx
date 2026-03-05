@@ -6,9 +6,10 @@ const DAY_SHORT = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 
 function generateTimes() {
   const t = [];
-  for (let h = 6; h <= 18; h++) {
-    for (let m = 0; m < 60; m += 15) {
-      if (h === 18 && m > 0) break;
+  for (let h = 5; h <= 18; h++) {
+    for (let m = 0; m < 60; m += 30) {
+      if (h === 5 && m < 30) continue; // start at 5:30 AM
+      if (h === 18 && m > 30) break;   // end at 6:30 PM
       const h12 = h > 12 ? h - 12 : h === 0 ? 12 : h;
       const ap  = h < 12 ? "AM" : "PM";
       t.push(`${h12}:${m.toString().padStart(2,"0")} ${ap}`);
@@ -91,7 +92,7 @@ function timeToMins(t) {
   if(ap==="PM"&&h!==12)h+=12; if(ap==="AM"&&h===12)h=0; return h*60+m;
 }
 function blockMins(b)  { return Math.max(0, timeToMins(b.endTime)-timeToMins(b.startTime)); }
-function dayMins(blks) { return (blks||[]).reduce((s,b)=>s+blockMins(b),0); }
+function dayMins(blks) { return (blks||[]).filter(b=>b.room!=="Lunch / Break").reduce((s,b)=>s+blockMins(b),0); }
 function fmtHours(m)   { if(!m)return"—"; const h=Math.floor(m/60),mn=m%60; return mn?`${h}h ${mn}m`:`${h}h`; }
 function hasOverlap(blocks) {
   const v=blocks.filter(b=>b.room&&b.startTime&&b.endTime);
@@ -173,6 +174,8 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
   const [emailSending,     setEmailSending]     = useState(false);
   const [emailSent,        setEmailSent]        = useState({});  // {staffId: true}
   const [showManageRooms,  setShowManageRooms]  = useState(false);
+  const [attendance, setAttendance] = useState({}); // { "weekIso|dayIndex|roomId": number }
+  const [showAttendance, setShowAttendance] = useState(false);
   const [showTemplates,    setShowTemplates]    = useState(false);
   const [showManageLocs,   setShowManageLocs]   = useState(false);
   const [newTemplateName,  setNewTemplateName]  = useState("");
@@ -326,7 +329,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
   const addRoom    = () => {
     if(!newRoomName.trim())return;
     const used=rooms.map(r=>r.colorIdx),idx=COLOR_PALETTE.findIndex((_,i)=>!used.includes(i));
-    setRooms([...rooms,{id:Date.now(),name:newRoomName.trim(),colorIdx:idx>=0?idx:rooms.length%COLOR_PALETTE.length}]);
+    setRooms([...rooms,{id:Date.now(),name:newRoomName.trim(),colorIdx:idx>=0?idx:rooms.length%COLOR_PALETTE.length,capacity:null,ratio:null}]);
     setNewRoomName("");
   };
   const removeRoom = id => {
@@ -569,6 +572,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
         ); })}
         <div style={{marginLeft:"auto",display:"flex",gap:8}}>
           <button onClick={()=>setShowManageRooms(true)} style={{background:"white",color:"#2D6A4F",border:"2px solid #40916C",borderRadius:10,padding:"7px 14px",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>🏠 Edit Rooms</button>
+          <button onClick={()=>setShowAttendance(true)} style={{background:"white",color:"#1E3A8A",border:"2px solid #1E3A8A",borderRadius:10,padding:"7px 14px",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>👶 Set Attendance</button>
           <button onClick={()=>setShowAddStaff(true)} style={{background:`linear-gradient(135deg,${locColor},${locColor}cc)`,color:"white",border:"none",borderRadius:10,padding:"7px 16px",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit",boxShadow:"0 2px 8px rgba(0,0,0,0.2)"}}>+ Add Staff</button>
         </div>
       </div>
@@ -588,6 +592,24 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                   </th>
                 ); })}
                 <th style={{background:"#1E3A8A",padding:"15px 8px",textAlign:"center",color:"white",fontSize:10,fontWeight:800,width:64,letterSpacing:"0.3px",borderLeft:"1px solid rgba(255,255,255,0.12)"}}>WEEK<br/>HRS</th>
+              </tr>
+              <tr>
+                <td style={{background:"#F8FAFC",padding:"6px 14px",borderRight:"2px solid #E8F3E8",fontSize:10,fontWeight:800,color:"#94A3B8",letterSpacing:"0.5px"}}>EXPECTED ATTENDANCE</td>
+                {weekDates.map((date,i)=>{
+                  const attKey=`${weekIso}|${i}`;
+                  return(
+                    <td key={i} style={{background:"#F8FAFC",padding:"5px 8px",textAlign:"center",borderRight:i<6?"1px solid #EEF2F8":"none"}}>
+                      <input
+                        type="number" min="0" max="99"
+                        value={attendance[attKey]||""}
+                        onChange={e=>setAttendance(prev=>({...prev,[attKey]:e.target.value?parseInt(e.target.value):null}))}
+                        placeholder="—"
+                        style={{width:52,padding:"4px 6px",borderRadius:7,border:"1.5px solid #E2E8F0",fontSize:12,fontWeight:700,textAlign:"center",outline:"none",fontFamily:"inherit",color:"#1E293B",background:"white"}}
+                      />
+                    </td>
+                  );
+                })}
+                <td style={{background:"#F8FAFC",borderLeft:"1px solid #EEF2F8"}}/>
               </tr>
             </thead>
             <tbody>
@@ -756,6 +778,26 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                         <option value="">Select a room…</option>
                         {rooms.map(r=><option key={r.id} value={r.name}>{r.name}</option>)}
                       </select>
+                      {block.room==="Lunch / Break"&&block.startTime&&block.endTime&&(()=>{
+                        const bStart=timeToMins(block.startTime), bEnd=timeToMins(block.endTime);
+                        const available=staff.filter(s=>{
+                          if(s.id===editCell?.staffId) return false;
+                          const theirBlocks=getCellData(s.id,editCell?.day)?.blocks||[];
+                          return !theirBlocks.some(tb=>{
+                            if(!tb.startTime||!tb.endTime||tb.room==="Lunch / Break") return false;
+                            const ts=timeToMins(tb.startTime),te=timeToMins(tb.endTime);
+                            return ts<bEnd&&te>bStart;
+                          });
+                        });
+                        return available.length>0?(
+                          <div style={{marginTop:8,background:"#FFF9E6",border:"1px solid #FCD34D",borderRadius:9,padding:"8px 11px"}}>
+                            <div style={{fontSize:10.5,fontWeight:800,color:"#92400E",marginBottom:5}}>💡 AVAILABLE FOR RELIEF</div>
+                            <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+                              {available.map(s=><span key={s.id} style={{background:"white",border:"1px solid #FCD34D",borderRadius:6,padding:"3px 8px",fontSize:11,fontWeight:700,color:"#78350F"}}>{s.name}</span>)}
+                            </div>
+                          </div>
+                        ):(<div style={{marginTop:8,background:"#FFF1F2",border:"1px solid #FCA5A5",borderRadius:9,padding:"8px 11px",fontSize:11,fontWeight:700,color:"#991B1B"}}>⚠️ No staff available for relief during this time</div>);
+                      })()}
                     </div>
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
                       <div>
@@ -844,15 +886,29 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
             <div style={{fontSize:13,color:"#64748B",marginBottom:20}}>Rooms are unique to this location. Click any name to rename it.</div>
             <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:20}}>
               {rooms.map(room=>{ const c=COLOR_PALETTE[room.colorIdx%COLOR_PALETTE.length]; return(
-                <div key={room.id} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 14px",background:c.bg,border:`2px solid ${c.border}`,borderRadius:12}}>
-                  <span style={{width:11,height:11,borderRadius:"50%",background:c.dot,flexShrink:0}}/>
-                  {editingRoomId===room.id?(
-                    <input autoFocus value={editingRoomName} onChange={e=>setEditingRoomName(e.target.value)} onBlur={saveRoomName} onKeyDown={e=>{if(e.key==="Enter")saveRoomName();if(e.key==="Escape")setEditingRoomId(null);}} style={{flex:1,fontSize:14,fontWeight:700,color:c.text,border:`2px solid ${c.border}`,borderRadius:8,padding:"5px 10px",outline:"none",fontFamily:"inherit",background:"white"}}/>
-                  ):(
-                    <span onClick={()=>startEditRoom(room)} style={{flex:1,fontSize:14,fontWeight:700,color:c.text,cursor:"text",borderBottom:`1.5px dashed ${c.border}`,paddingBottom:1}}>{room.name}</span>
+                <div key={room.id} style={{background:c.bg,border:`2px solid ${c.border}`,borderRadius:12,padding:"11px 14px"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:room.name!=="Lunch / Break"?8:0}}>
+                    <span style={{width:11,height:11,borderRadius:"50%",background:c.dot,flexShrink:0}}/>
+                    {editingRoomId===room.id?(
+                      <input autoFocus value={editingRoomName} onChange={e=>setEditingRoomName(e.target.value)} onBlur={saveRoomName} onKeyDown={e=>{if(e.key==="Enter")saveRoomName();if(e.key==="Escape")setEditingRoomId(null);}} style={{flex:1,fontSize:14,fontWeight:700,color:c.text,border:`2px solid ${c.border}`,borderRadius:8,padding:"5px 10px",outline:"none",fontFamily:"inherit",background:"white"}}/>
+                    ):(
+                      <span onClick={()=>startEditRoom(room)} style={{flex:1,fontSize:14,fontWeight:700,color:c.text,cursor:"text",borderBottom:`1.5px dashed ${c.border}`,paddingBottom:1}}>{room.name}</span>
+                    )}
+                    {editingRoomId!==room.id&&<span style={{fontSize:10.5,color:"#94A3B8",fontStyle:"italic"}}>click to rename</span>}
+                    <button onClick={()=>setConfirmDelete({type:"room",id:room.id,name:room.name})} style={{background:"none",border:"none",color:"#CBD5E1",cursor:"pointer",fontSize:20,lineHeight:1,padding:"0 2px"}} onMouseEnter={e=>e.currentTarget.style.color="#EF4444"} onMouseLeave={e=>e.currentTarget.style.color="#CBD5E1"}>×</button>
+                  </div>
+                  {room.name!=="Lunch / Break"&&(
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                      <div>
+                        <div style={{fontSize:10,fontWeight:800,color:"#94A3B8",letterSpacing:"0.5px",marginBottom:4}}>MAX CAPACITY</div>
+                        <input type="number" min="1" max="50" placeholder="e.g. 10" value={room.capacity||""} onChange={e=>setRooms(rooms.map(r=>r.id===room.id?{...r,capacity:e.target.value?parseInt(e.target.value):null}:r))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1.5px solid ${c.border}`,fontSize:13,fontWeight:700,outline:"none",fontFamily:"inherit",background:"white",color:c.text}}/>
+                      </div>
+                      <div>
+                        <div style={{fontSize:10,fontWeight:800,color:"#94A3B8",letterSpacing:"0.5px",marginBottom:4}}>STAFF : CHILDREN RATIO</div>
+                        <input placeholder="e.g. 1:4" value={room.ratio||""} onChange={e=>setRooms(rooms.map(r=>r.id===room.id?{...r,ratio:e.target.value}:r))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`1.5px solid ${c.border}`,fontSize:13,fontWeight:700,outline:"none",fontFamily:"inherit",background:"white",color:c.text}}/>
+                      </div>
+                    </div>
                   )}
-                  {editingRoomId!==room.id&&<span style={{fontSize:10.5,color:"#94A3B8",fontStyle:"italic"}}>click to rename</span>}
-                  <button onClick={()=>setConfirmDelete({type:"room",id:room.id,name:room.name})} style={{background:"none",border:"none",color:"#CBD5E1",cursor:"pointer",fontSize:20,lineHeight:1,padding:"0 2px"}} onMouseEnter={e=>e.currentTarget.style.color="#EF4444"} onMouseLeave={e=>e.currentTarget.style.color="#CBD5E1"}>×</button>
                 </div>
               ); })}
             </div>
@@ -1020,6 +1076,266 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
       })()}
 
       <style>{`* { box-sizing: border-box; } select { -webkit-appearance: auto; } @media print { body { background: white !important; } button { display: none !important; } }`}</style>
+
+      {/* ── ATTENDANCE MODAL ── */}
+      {showAttendance&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(15,30,20,0.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:16}} onClick={e=>e.target===e.currentTarget&&setShowAttendance(false)}>
+          <div style={{background:"white",borderRadius:22,padding:28,width:720,maxWidth:"100%",boxShadow:"0 24px 64px rgba(0,0,0,0.25)",maxHeight:"90vh",overflowY:"auto"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+              <div style={{fontWeight:900,fontSize:22,color:"#1E293B"}}>👶 Expected Attendance — {weekLabel}</div>
+              <button onClick={()=>setShowAttendance(false)} style={{background:"#F1F5F9",border:"none",borderRadius:8,width:30,height:30,cursor:"pointer",fontSize:18,color:"#64748B",display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
+            </div>
+            <div style={{fontSize:13,color:"#64748B",marginBottom:20}}>Enter how many children you expect per room each day. This helps the AI verify staffing ratios.</div>
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse"}}>
+                <thead>
+                  <tr>
+                    <th style={{padding:"10px 14px",textAlign:"left",fontSize:11,fontWeight:800,color:"#94A3B8",letterSpacing:"0.5px",borderBottom:"2px solid #F1F5F9",width:140}}>ROOM</th>
+                    {DAY_SHORT.map((d,i)=>(
+                      <th key={i} style={{padding:"10px 8px",textAlign:"center",fontSize:11,fontWeight:800,color:"#1E3A8A",letterSpacing:"0.5px",borderBottom:"2px solid #F1F5F9",minWidth:80}}>
+                        {d}<div style={{fontSize:10,color:"#94A3B8",fontWeight:600}}>{formatDate(weekDates[i])}</div>
+                      </th>
+                    ))}
+                    <th style={{padding:"10px 8px",textAlign:"center",fontSize:11,fontWeight:800,color:"#94A3B8",borderBottom:"2px solid #F1F5F9",width:60}}>TOTAL</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rooms.filter(r=>r.name!=="Lunch / Break").map((room,ri)=>{
+                    const c=COLOR_PALETTE[room.colorIdx%COLOR_PALETTE.length];
+                    const weekTotal=DAY_SHORT.reduce((sum,_,i)=>{
+                      const k=`${weekIso}|${i}|${room.id}`;
+                      return sum+(attendance[k]||0);
+                    },0);
+                    return(
+                      <tr key={room.id} style={{borderBottom:"1px solid #F1F5F9",background:ri%2===0?"white":"#FAFDF9"}}>
+                        <td style={{padding:"10px 14px"}}>
+                          <div style={{display:"flex",alignItems:"center",gap:8}}>
+                            <span style={{width:10,height:10,borderRadius:"50%",background:c.dot,flexShrink:0}}/>
+                            <span style={{fontSize:13,fontWeight:800,color:c.text}}>{room.name}</span>
+                          </div>
+                          {room.capacity&&<div style={{fontSize:10,color:"#94A3B8",fontWeight:600,marginTop:2,paddingLeft:18}}>Cap: {room.capacity}{room.ratio?` · Ratio: ${room.ratio}`:""}</div>}
+                        </td>
+                        {DAY_SHORT.map((_,i)=>{
+                          const k=`${weekIso}|${i}|${room.id}`;
+                          const val=attendance[k]||"";
+                          const overCap=room.capacity&&val>room.capacity;
+                          return(
+                            <td key={i} style={{padding:"8px",textAlign:"center"}}>
+                              <input
+                                type="number" min="0" max="99"
+                                value={val}
+                                onChange={e=>setAttendance(prev=>({...prev,[k]:e.target.value?parseInt(e.target.value):null}))}
+                                placeholder="—"
+                                style={{width:56,padding:"6px 8px",borderRadius:8,border:`2px solid ${overCap?"#EF4444":val?c.border:"#E2E8F0"}`,fontSize:13,fontWeight:700,textAlign:"center",outline:"none",fontFamily:"inherit",color:overCap?"#EF4444":c.text,background:overCap?"#FFF5F5":"white"}}
+                              />
+                              {overCap&&<div style={{fontSize:9,color:"#EF4444",fontWeight:800,marginTop:2}}>OVER CAP</div>}
+                            </td>
+                          );
+                        })}
+                        <td style={{padding:"8px",textAlign:"center",fontSize:13,fontWeight:900,color:weekTotal>0?"#1E3A8A":"#CBD5E1"}}>{weekTotal||"—"}</td>
+                      </tr>
+                    );
+                  })}
+                  {/* Daily totals row */}
+                  <tr style={{borderTop:"2px solid #E2E8F0",background:"#F8FAFC"}}>
+                    <td style={{padding:"10px 14px",fontSize:11,fontWeight:800,color:"#94A3B8",letterSpacing:"0.5px"}}>DAILY TOTAL</td>
+                    {DAY_SHORT.map((_,i)=>{
+                      const dayTotal=rooms.filter(r=>r.name!=="Lunch / Break").reduce((sum,room)=>{
+                        const k=`${weekIso}|${i}|${room.id}`;
+                        return sum+(attendance[k]||0);
+                      },0);
+                      return <td key={i} style={{padding:"10px 8px",textAlign:"center",fontSize:14,fontWeight:900,color:dayTotal>0?"#1E3A8A":"#CBD5E1"}}>{dayTotal||"—"}</td>;
+                    })}
+                    <td style={{padding:"10px 8px",textAlign:"center",fontSize:14,fontWeight:900,color:"#1B4332"}}>
+                      {rooms.filter(r=>r.name!=="Lunch / Break").reduce((sum,room)=>sum+DAY_SHORT.reduce((s,_,i)=>s+(attendance[`${weekIso}|${i}|${room.id}`]||0),0),0)||"—"}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <button onClick={()=>setShowAttendance(false)} style={{marginTop:20,width:"100%",padding:13,borderRadius:12,border:"none",background:"linear-gradient(135deg,#1B4332,#40916C)",color:"white",fontWeight:800,fontSize:15,cursor:"pointer",fontFamily:"inherit"}}>Done ✓</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── AI SCHEDULING ASSISTANT ── */}
+      <AiAssistant loc={loc} staff={staff} rooms={rooms} weekLabel={weekLabel} weekIso={weekIso} DAYS={DAYS} getCellData={getCellData} staffWeekMins={staffWeekMins} fmtHours={fmtHours} attendance={attendance} />
+    </div>
+  );
+}
+
+function AiAssistant({ loc, staff, rooms, weekLabel, weekIso, DAYS, getCellData, staffWeekMins, fmtHours, attendance }) {
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiMessages, setAiMessages] = useState([{role:"assistant",content:"Hi! I'm your scheduling assistant 👋 I can help you build efficient schedules, suggest coverage, or answer questions about your staff and rooms. What do you need help with?"}]);
+  const [aiInput, setAiInput] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+  const aiEndRef = useRef(null);
+  const [historyContext, setHistoryContext] = useState("");
+
+  useEffect(()=>{
+    // Fetch last 8 weeks of schedule data from Supabase for AI context
+    async function fetchHistory() {
+      try {
+        const { createClient } = await import("https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm");
+        const sb = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY);
+        const { data } = await sb.from("schedule").select("data,updated_at").order("updated_at",{ascending:false}).limit(20);
+        if(!data||!data.length) return;
+        // Build a summary of past schedules
+        const summaries = [];
+        const seen = new Set();
+        for(const row of data) {
+          const locs = row.data?.locations||[];
+          for(const l of locs) {
+            if(!l.schedule) continue;
+            // Get unique weeks in this snapshot
+            const weeks = [...new Set(Object.keys(l.schedule).map(k=>k.split("|")[0]))];
+            for(const w of weeks) {
+              if(seen.has(w)||seen.size>=8) continue;
+              seen.add(w);
+              const staffSummary = (l.staff||[]).map(s=>{
+                const days = (DAYS||[]).map((d,i)=>{
+                  const key=`${w}|${s.id}|${i}`;
+                  const blks=(l.schedule[key]?.blocks||[]).filter(b=>b.room&&b.startTime&&b.endTime&&b.room!=="Lunch / Break");
+                  return blks.length?`${d}: ${blks.map(b=>`${b.room} ${b.startTime}-${b.endTime}`).join(",")}`:null;
+                }).filter(Boolean);
+                return days.length?`${s.name}: ${days.join(" | ")}`:null;
+              }).filter(Boolean).join("; ");
+              if(staffSummary) summaries.push(`Week of ${w}: ${staffSummary}`);
+            }
+          }
+        }
+        if(summaries.length) setHistoryContext("\n\nHISTORICAL SCHEDULES (last 8 weeks):\n"+summaries.join("\n"));
+      } catch(e) { console.log("History fetch failed:", e.message); }
+    }
+    fetchHistory();
+  },[]);
+
+  useEffect(()=>{ aiEndRef.current?.scrollIntoView({behavior:"smooth"}); },[aiMessages]);
+
+  const roomDetails = (rooms||[]).filter(r=>r.name!=="Lunch / Break").map(r=>{
+    const parts = [r.name];
+    if(r.capacity) parts.push(`capacity: ${r.capacity} children`);
+    if(r.ratio) parts.push(`ratio: ${r.ratio}`);
+    return parts.join(" | ");
+  }).join("\n") || "None";
+
+  const attendanceSummary = (DAYS||[]).map((d,i)=>{
+    const roomCounts = (rooms||[]).filter(r=>r.name!=="Lunch / Break").map(room=>{
+      const k=`${weekIso}|${i}|${room.id}`;
+      const val=attendance?.[k];
+      return val ? `${room.name}: ${val}` : null;
+    }).filter(Boolean);
+    return roomCounts.length ? `${d}: ${roomCounts.join(", ")}` : null;
+  }).filter(Boolean).join(" | ") || "No attendance data entered";
+
+  const scheduleContext = `You are a helpful childcare scheduling assistant for Kids Connection Childcare.
+Current location: ${loc?.name||"Unknown"}
+Today's date: ${new Date().toLocaleDateString("en-US",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}
+Current week: ${weekLabel}
+
+STAFF (${(staff||[]).length} total):
+${(staff||[]).map(s=>`- ${s.name} (${fmtHours(staffWeekMins(s.id))}/week)`).join("\n")||"None"}
+
+ROOMS WITH CAPACITY & RATIOS:
+${roomDetails}
+
+EXPECTED ATTENDANCE THIS WEEK:
+${attendanceSummary}
+
+CURRENT WEEK SCHEDULE:
+${(staff||[]).map(s=>{
+  const wkMins=staffWeekMins(s.id);
+  const days=(DAYS||[]).map((d,i)=>{
+    const blks=getCellData(s.id,i)?.blocks||[];
+    const valid=blks.filter(b=>b.room&&b.startTime&&b.endTime&&b.room!=="Lunch / Break");
+    const brk=blks.filter(b=>b.room==="Lunch / Break"&&b.startTime&&b.endTime);
+    const dayStr=valid.length?valid.map(b=>\`\${b.room} \${b.startTime}-\${b.endTime}\`).join(", "):null;
+    const brkStr=brk.length?\` [break \${brk.map(b=>\`\${b.startTime}-\${b.endTime}\`).join(",")}]\`:"";
+    return dayStr?\`\${d}: \${dayStr}\${brkStr}\`:null;
+  }).filter(Boolean);
+  return \`\${s.name} (\${fmtHours(wkMins)}/week): \${days.length?days.join(" | "):"No shifts scheduled"}\`;
+}).join("\n")||"No staff added yet"}
+
+Use this information to:
+- Suggest schedule improvements and flag coverage gaps
+- Check if staff:child ratios are being met based on attendance and room assignments
+- Identify over/understaffing based on room capacities
+- Learn patterns from historical schedules to improve efficiency
+- Be concise, practical, and specific to Kids Connection Childcare
+
+When suggesting schedules, always consider: room ratios, expected attendance, staff hours balance, and break coverage.`;
+
+  const sendMessage = async () => {
+    if(!aiInput.trim()||aiLoading) return;
+    const userMsg = {role:"user", content:aiInput.trim()};
+    const newMessages = [...aiMessages, userMsg];
+    setAiMessages(newMessages);
+    setAiInput("");
+    setAiLoading(true);
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({
+          model:"claude-sonnet-4-20250514",
+          max_tokens:1000,
+          system: scheduleContext + historyContext,
+          messages: newMessages.map(m=>({role:m.role,content:m.content})),
+        })
+      });
+      const data = await res.json();
+      const reply = data.content?.[0]?.text || "Sorry, I couldn't generate a response.";
+      setAiMessages(prev=>[...prev,{role:"assistant",content:reply}]);
+    } catch(e) {
+      setAiMessages(prev=>[...prev,{role:"assistant",content:"Sorry, something went wrong. Please try again."}]);
+    }
+    setAiLoading(false);
+  };
+
+  return(
+    <div style={{position:"fixed",bottom:20,left:20,zIndex:9000,fontFamily:"'Nunito',sans-serif"}}>
+      {aiOpen&&(
+        <div style={{position:"absolute",bottom:"calc(100% + 10px)",left:0,width:340,background:"white",borderRadius:18,boxShadow:"0 12px 48px rgba(0,0,0,0.2)",border:"1px solid #E2E8F0",overflow:"hidden",display:"flex",flexDirection:"column"}}>
+          <div style={{background:"linear-gradient(135deg,#0a0e1a,#1a2744)",padding:"14px 16px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <span style={{fontSize:20}}>🤖</span>
+              <div>
+                <div style={{color:"white",fontWeight:800,fontSize:14}}>Scheduling Assistant</div>
+                <div style={{color:"rgba(255,255,255,0.6)",fontSize:11}}>Powered by Claude AI</div>
+              </div>
+            </div>
+            <button onClick={()=>setAiOpen(false)} style={{background:"none",border:"none",color:"rgba(255,255,255,0.6)",cursor:"pointer",fontSize:18,lineHeight:1}}>×</button>
+          </div>
+          <div style={{height:320,overflowY:"auto",padding:"14px 14px 0",display:"flex",flexDirection:"column",gap:10}}>
+            {aiMessages.map((m,i)=>(
+              <div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start"}}>
+                <div style={{maxWidth:"85%",padding:"9px 13px",borderRadius:m.role==="user"?"14px 14px 4px 14px":"14px 14px 14px 4px",background:m.role==="user"?"#1E3A8A":"#F1F5F9",color:m.role==="user"?"white":"#1E293B",fontSize:13,lineHeight:1.5,fontWeight:500,whiteSpace:"pre-wrap"}}>
+                  {m.content}
+                </div>
+              </div>
+            ))}
+            {aiLoading&&(
+              <div style={{display:"flex",justifyContent:"flex-start"}}>
+                <div style={{background:"#F1F5F9",borderRadius:"14px 14px 14px 4px",padding:"9px 13px",fontSize:13,color:"#94A3B8"}}>Thinking…</div>
+              </div>
+            )}
+            <div ref={aiEndRef}/>
+          </div>
+          <div style={{padding:"12px 14px",borderTop:"1px solid #F1F5F9",display:"flex",gap:8}}>
+            <input
+              value={aiInput}
+              onChange={e=>setAiInput(e.target.value)}
+              onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&sendMessage()}
+              placeholder="Ask me anything about scheduling…"
+              style={{flex:1,padding:"9px 12px",borderRadius:10,border:"1.5px solid #E2E8F0",fontSize:13,fontFamily:"inherit",outline:"none",color:"#1E293B"}}
+            />
+            <button onClick={sendMessage} disabled={aiLoading||!aiInput.trim()} style={{padding:"9px 14px",borderRadius:10,border:"none",background:"#1E3A8A",color:"white",fontWeight:800,fontSize:13,cursor:aiLoading||!aiInput.trim()?"default":"pointer",opacity:aiLoading||!aiInput.trim()?0.5:1,fontFamily:"inherit"}}>↑</button>
+          </div>
+        </div>
+      )}
+      <button onClick={()=>setAiOpen(o=>!o)} style={{width:48,height:48,borderRadius:14,background:aiOpen?"#1E3A8A":"linear-gradient(135deg,#1E3A8A,#2D4FA0)",border:"none",boxShadow:"0 4px 16px rgba(30,58,138,0.4)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,transition:"all 0.15s"}}>
+        {aiOpen?"✕":"🤖"}
+      </button>
     </div>
   );
 }
