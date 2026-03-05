@@ -155,9 +155,6 @@ function AuthScreen() {
 // ─── Authenticated shell ──────────────────────────────────────────────────────
 function SchedulerShell() {
   const { session, signOut } = useAuth();
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef(null);
-
   // Install shim SYNCHRONOUSLY during render — before scheduler's useEffect fires
   const shimInstalledRef = useRef(false);
   if (!shimInstalledRef.current) {
@@ -166,68 +163,7 @@ function SchedulerShell() {
   }
 
   // Close menu on outside click
-  useEffect(() => {
-    if (!menuOpen) return;
-    const handler = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false); };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [menuOpen]);
-
-  return (
-    <>
-      {/* Hamburger menu — fixed bottom-right */}
-      <div ref={menuRef} style={{ position:"fixed", bottom:20, right:20, zIndex:9999, fontFamily:"'Nunito',sans-serif" }}>
-
-        {/* Dropdown panel */}
-        {menuOpen && (
-          <div style={{
-            position:"absolute", bottom:"calc(100% + 10px)", right:0,
-            background:"white", borderRadius:14, padding:"14px 16px",
-            boxShadow:"0 8px 32px rgba(0,0,0,0.18)", border:"1px solid #E2E8F0",
-            minWidth:220,
-          }}>
-            <div style={{ fontSize:11, fontWeight:800, color:"#94A3B8", letterSpacing:"0.5px", marginBottom:8, textTransform:"uppercase" }}>Signed in as</div>
-            <div style={{ fontSize:13, fontWeight:700, color:"#1E293B", marginBottom:14, wordBreak:"break-all" }}>{session.user.email}</div>
-            <button
-              onClick={() => { setMenuOpen(false); signOut(); }}
-              style={{
-                width:"100%", padding:"9px 0", borderRadius:9,
-                border:"1px solid #E2E8F0", background:"#F8FAFC",
-                color:"#DC2626", fontSize:13, fontWeight:800,
-                cursor:"pointer", fontFamily:"inherit",
-              }}
-            >
-              🚪 Sign out
-            </button>
-          </div>
-        )}
-
-        {/* Hamburger button */}
-        <button
-          onClick={() => setMenuOpen(o => !o)}
-          style={{
-            width:42, height:42, borderRadius:12,
-            background: menuOpen ? "#1E3A8A" : "white",
-            border:"1px solid #E2E8F0",
-            boxShadow:"0 2px 12px rgba(0,0,0,0.15)",
-            cursor:"pointer", display:"flex", flexDirection:"column",
-            alignItems:"center", justifyContent:"center", gap:5,
-            transition:"background 0.15s",
-          }}
-        >
-          {[0,1,2].map(i => (
-            <span key={i} style={{
-              display:"block", width:18, height:2, borderRadius:2,
-              background: menuOpen ? "white" : "#475569",
-              transition:"background 0.15s",
-            }}/>
-          ))}
-        </button>
-      </div>
-
-      <KidsConnectionScheduler userEmail={session.user.email} onSignOut={signOut} />
-    </>
-  );
+  return <KidsConnectionScheduler userEmail={session.user.email} onSignOut={signOut} />;
 }
 
 // ─── Root ─────────────────────────────────────────────────────────────────────

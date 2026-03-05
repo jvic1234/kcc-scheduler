@@ -175,6 +175,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
   const [emailSent,        setEmailSent]        = useState({});  // {staffId: true}
   const [showManageRooms,  setShowManageRooms]  = useState(false);
   const [attendance, setAttendance] = useState({}); // { "weekIso|dayIndex|roomId": number }
+  const [attendanceExcluded, setAttendanceExcluded] = useState(new Set(["Lunch / Break"])); // room names excluded from attendance
   const [showAttendance, setShowAttendance] = useState(false);
   const [showTemplates,    setShowTemplates]    = useState(false);
   const [showManageLocs,   setShowManageLocs]   = useState(false);
@@ -1083,7 +1084,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                   </tr>
                 </thead>
                 <tbody>
-                  {rooms.filter(r=>r.name!=="Lunch / Break").map((room,ri)=>{
+                  {rooms.filter(r=>!attendanceExcluded.has(r.name)).map((room,ri)=>{
                     const c=COLOR_PALETTE[room.colorIdx%COLOR_PALETTE.length];
                     const weekTotal=DAY_SHORT.reduce((sum,_,i)=>{
                       const k=`${wiso}|${i}|${room.id}`;
@@ -1095,6 +1096,9 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                           <div style={{display:"flex",alignItems:"center",gap:8}}>
                             <span style={{width:10,height:10,borderRadius:"50%",background:c.dot,flexShrink:0}}/>
                             <span style={{fontSize:13,fontWeight:800,color:c.text}}>{room.name}</span>
+                            <button onClick={()=>setAttendanceExcluded(prev=>{const n=new Set(prev);n.has(room.name)?n.delete(room.name):n.add(room.name);return n;})} style={{marginLeft:"auto",padding:"2px 9px",borderRadius:6,border:"none",background:attendanceExcluded.has(room.name)?"#FEE2E2":"#E8F5E8",color:attendanceExcluded.has(room.name)?"#DC2626":"#2D6A4F",fontSize:10,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>
+                              {attendanceExcluded.has(room.name)?"excluded ×":"include ✓"}
+                            </button>
                           </div>
                           {room.capacity&&<div style={{fontSize:10,color:"#94A3B8",fontWeight:600,marginTop:2,paddingLeft:18}}>Cap: {room.capacity}{room.ratio?` · Ratio: ${room.ratio}`:""}</div>}
                         </td>
@@ -1123,14 +1127,14 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                   <tr style={{borderTop:"2px solid #E2E8F0",background:"#F8FAFC"}}>
                     <td style={{padding:"10px 14px",fontSize:11,fontWeight:800,color:"#94A3B8",letterSpacing:"0.5px"}}>DAILY TOTAL</td>
                     {DAY_SHORT.map((_,i)=>{
-                      const dayTotal=rooms.filter(r=>r.name!=="Lunch / Break").reduce((sum,room)=>{
+                      const dayTotal=rooms.filter(r=>!attendanceExcluded.has(r.name)).reduce((sum,room)=>{
                         const k=`${wiso}|${i}|${room.id}`;
                         return sum+(attendance[k]||0);
                       },0);
                       return <td key={i} style={{padding:"10px 8px",textAlign:"center",fontSize:14,fontWeight:900,color:dayTotal>0?"#1E3A8A":"#CBD5E1"}}>{dayTotal||"—"}</td>;
                     })}
                     <td style={{padding:"10px 8px",textAlign:"center",fontSize:14,fontWeight:900,color:"#1B4332"}}>
-                      {rooms.filter(r=>r.name!=="Lunch / Break").reduce((sum,room)=>sum+DAY_SHORT.reduce((s,_,i)=>s+(attendance[`${wiso}|${i}|${room.id}`]||0),0),0)||"—"}
+                      {rooms.filter(r=>!attendanceExcluded.has(r.name)).reduce((sum,room)=>sum+DAY_SHORT.reduce((s,_,i)=>s+(attendance[`${wiso}|${i}|${room.id}`]||0),0),0)||"—"}
                     </td>
                   </tr>
                 </tbody>
@@ -1142,12 +1146,12 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
       )}
 
       {/* ── AI SCHEDULING ASSISTANT ── */}
-      <AiAssistant loc={loc} staff={staff} rooms={rooms} weekLabel={weekLabel} weekIso={wiso} DAYS={DAYS} getCellData={getCellData} staffWeekMins={staffWeekMins} fmtHours={fmtHours} attendance={attendance} />
+      <AiAssistant loc={loc} staff={staff} rooms={rooms} weekLabel={weekLabel} weekIso={wiso} DAYS={DAYS} getCellData={getCellData} staffWeekMins={staffWeekMins} fmtHours={fmtHours} attendance={attendance} attendanceExcluded={attendanceExcluded} />
     </div>
   );
 }
 
-function AiAssistant({ loc, staff, rooms, weekLabel, weekIso, DAYS, getCellData, staffWeekMins, fmtHours, attendance }) {
+function AiAssistant({ loc, staff, rooms, weekLabel, weekIso, DAYS, getCellData, staffWeekMins, fmtHours, attendance, attendanceExcluded }) {
   const [aiOpen, setAiOpen] = useState(false);
   const [aiMessages, setAiMessages] = useState([{role:"assistant",content:"Hi! I'm your scheduling assistant 👋 I can help you build efficient schedules, suggest coverage, or answer questions about your staff and rooms. What do you need help with?"}]);
   const [aiInput, setAiInput] = useState("");
@@ -1203,7 +1207,7 @@ function AiAssistant({ loc, staff, rooms, weekLabel, weekIso, DAYS, getCellData,
   }).join("\n") || "None";
 
   const attendanceSummary = (DAYS||[]).map((d,i)=>{
-    const roomCounts = (rooms||[]).filter(r=>r.name!=="Lunch / Break").map(room=>{
+    const roomCounts = (rooms||[]).filter(r=>!attendanceExcluded?.has(r.name)).map(room=>{
       const k=`${weekIso}|${i}|${room.id}`;
       const val=attendance?.[k];
       return val ? `${room.name}: ${val}` : null;
