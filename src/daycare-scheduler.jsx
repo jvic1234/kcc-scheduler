@@ -1249,11 +1249,11 @@ ${(staff||[]).map(s=>{
     const blks=getCellData(s.id,i)?.blocks||[];
     const valid=blks.filter(b=>b.room&&b.startTime&&b.endTime&&b.room!=="Lunch / Break");
     const brk=blks.filter(b=>b.room==="Lunch / Break"&&b.startTime&&b.endTime);
-    const dayStr=valid.length?valid.map(b=>\`\${b.room} \${b.startTime}-\${b.endTime}\`).join(", "):null;
-    const brkStr=brk.length?\` [break \${brk.map(b=>\`\${b.startTime}-\${b.endTime}\`).join(",")}]\`:"";
-    return dayStr?\`\${d}: \${dayStr}\${brkStr}\`:null;
+    const dayStr=valid.length?valid.map(b=>b.room+" "+b.startTime+"-"+b.endTime).join(", "):null;
+    const brkStr=brk.length?" [break "+brk.map(b=>b.startTime+"-"+b.endTime).join(",")+"]":"";
+    return dayStr?d+": "+dayStr+brkStr:null;
   }).filter(Boolean);
-  return \`\${s.name} (\${fmtHours(wkMins)}/week): \${days.length?days.join(" | "):"No shifts scheduled"}\`;
+  return s.name+" ("+fmtHours(wkMins)+"/week): "+(days.length?days.join(" | "):"No shifts scheduled");
 }).join("\n")||"No staff added yet"}
 
 Use this information to:
