@@ -481,56 +481,7 @@ export default function KidsConnectionScheduler() {
         <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
           {saveStatus&&<span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,0.85)",fontWeight:700}}>{saveStatus==="saving"?"⏳ Saving…":"✅ Saved"}</span>}
 
-          {/* Week nav + calendar */}
-          <div ref={calRef} style={{display:"flex",alignItems:"center",gap:6,background:"rgba(255,255,255,0.2)",borderRadius:12,padding:"6px 12px",position:"relative",border:"1px solid rgba(255,255,255,0.35)"}}>
-            <button onClick={goToPrev} style={{background:"none",border:"none",color:"white",cursor:"pointer",fontSize:18,lineHeight:1,padding:"0 4px"}}>‹</button>
-            <div style={{textAlign:"center"}}>
-              <div style={{fontWeight:700,fontSize:13,whiteSpace:"nowrap",color:"white"}}>{weekLabel}</div>
-              <button onClick={()=>{setShowCalendar(!showCalendar);setCalViewMonth(new Date(weekStart.getFullYear(),weekStart.getMonth(),1));}} style={{background:"none",border:"none",color:"rgba(255,255,255,0.85)",cursor:"pointer",fontSize:10,padding:"2px 0",fontFamily:"inherit",fontWeight:600}}>📅 Pick a date ▾</button>
-            </div>
-            <button onClick={goToNext} style={{background:"none",border:"none",color:"white",cursor:"pointer",fontSize:18,lineHeight:1,padding:"0 4px"}}>›</button>
 
-            {/* Mini calendar */}
-            {showCalendar&&(()=>{
-              const yr=calViewMonth.getFullYear(),mo=calViewMonth.getMonth();
-              const mName=calViewMonth.toLocaleDateString("en-US",{month:"long",year:"numeric"});
-              const fd=new Date(yr,mo,1).getDay(),dim=new Date(yr,mo+1,0).getDate();
-              const off=fd===0?6:fd-1; const cells=[]; for(let i=0;i<off;i++)cells.push(null); for(let d=1;d<=dim;d++)cells.push(new Date(yr,mo,d));
-              while(cells.length%7!==0)cells.push(null);
-              const weeks=[]; for(let i=0;i<cells.length;i+=7)weeks.push(cells.slice(i,i+7));
-              const today=new Date();
-              return(
-                <div style={{position:"absolute",top:"calc(100% + 10px)",left:"50%",transform:"translateX(-50%)",background:"white",borderRadius:16,boxShadow:"0 12px 40px rgba(0,0,0,0.25)",padding:16,zIndex:2000,minWidth:280,color:"#1E293B"}}>
-                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
-                    <button onClick={()=>setCalViewMonth(new Date(yr,mo-1,1))} style={{background:"#F0F7F4",border:"none",borderRadius:8,width:30,height:30,cursor:"pointer",fontSize:16,color:"#2D6A4F",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700}}>‹</button>
-                    <span style={{fontWeight:800,fontSize:14,color:"#1B4332"}}>{mName}</span>
-                    <button onClick={()=>setCalViewMonth(new Date(yr,mo+1,1))} style={{background:"#F0F7F4",border:"none",borderRadius:8,width:30,height:30,cursor:"pointer",fontSize:16,color:"#2D6A4F",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700}}>›</button>
-                  </div>
-                  <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",marginBottom:4}}>
-                    {["Mo","Tu","We","Th","Fr","Sa","Su"].map(d=><div key={d} style={{textAlign:"center",fontSize:10,fontWeight:800,color:"#94A3B8",padding:"3px 0"}}>{d}</div>)}
-                  </div>
-                  {weeks.map((week,wi)=>{
-                    const fv=week.find(d=>d!==null),ws2=fv?getWeekStart(fv):null;
-                    const isSel=ws2&&weekStart.toDateString()===ws2.toDateString();
-                    return(
-                      <div key={wi} onClick={()=>{if(ws2){setWeekStart(ws2);setShowCalendar(false);}}}
-                        style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",borderRadius:8,cursor:fv?"pointer":"default",background:isSel?"#D8F3DC":"transparent",marginBottom:2,transition:"background 0.12s"}}
-                        onMouseEnter={e=>{if(!isSel&&fv)e.currentTarget.style.background="#F0F7F4";}}
-                        onMouseLeave={e=>{if(!isSel)e.currentTarget.style.background="transparent";}}>
-                        {week.map((day,di)=>{ const isT=day&&day.toDateString()===today.toDateString();
-                          return<div key={di} style={{textAlign:"center",padding:"5px 2px",fontSize:12,fontWeight:isT?900:isSel?800:500,color:day?(isT?"#1B4332":"#374151"):"transparent",borderRadius:6,background:isT?"#95D5B2":"transparent"}}>{day?day.getDate():""}</div>;
-                        })}
-                      </div>
-                    );
-                  })}
-                  <div style={{textAlign:"center",marginTop:10,fontSize:11,color:"#94A3B8",fontWeight:600}}>Click any row to jump to that week</div>
-                  <button onClick={()=>setShowCalendar(false)} style={{marginTop:8,width:"100%",padding:8,borderRadius:9,border:"none",background:"#F0F7F4",color:"#2D6A4F",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Close</button>
-                </div>
-              );
-            })()}
-          </div>
-
-          <button onClick={handlePrint} style={{background:"#1E3A8A",border:"none",color:"white",padding:"9px 16px",borderRadius:10,cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:700,display:"flex",alignItems:"center",gap:6}}>🖨️ Print / Share</button>
         </div>
       </div>
 
@@ -550,6 +501,7 @@ export default function KidsConnectionScheduler() {
           style={{marginLeft:"auto",padding:"11px 16px",border:"none",background:"transparent",color:"rgba(255,255,255,0.5)",fontFamily:"inherit",fontWeight:700,fontSize:12,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0,display:"flex",alignItems:"center",gap:5}}>
           ⚙️ Manage Locations
         </button>
+        <button onClick={handlePrint} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.25)",color:"white",padding:"7px 14px",borderRadius:10,cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:700,display:"flex",alignItems:"center",gap:5,whiteSpace:"nowrap",flexShrink:0}}>🖨️ Print</button>
       </div>
 
       {/* ── QUICK ACTIONS ── */}
@@ -558,6 +510,51 @@ export default function KidsConnectionScheduler() {
         <button onClick={fillFromPrevWeek} style={{background:"white",border:"1.5px solid #40916C",color:"#1B4332",borderRadius:9,padding:"5px 13px",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>⬅️ Fill from Prev Week</button>
         <button onClick={copyWeekToNext}  style={{background:"white",border:"1.5px solid #40916C",color:"#1B4332",borderRadius:9,padding:"5px 13px",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>➡️ Copy Week to Next</button>
         <button onClick={()=>setShowTemplates(true)} style={{background:"white",border:"1.5px solid #9575CD",color:"#512DA8",borderRadius:9,padding:"5px 13px",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>📁 Templates{templates.length>0?` (${templates.length})`:""}</button>
+        <div ref={calRef} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6,background:"white",borderRadius:9,padding:"4px 10px",position:"relative",border:"1.5px solid #40916C"}}>
+          <button onClick={goToPrev} style={{background:"none",border:"none",color:"#1B4332",cursor:"pointer",fontSize:18,lineHeight:1,padding:"0 3px"}}>‹</button>
+          <div style={{textAlign:"center"}}>
+            <div style={{fontWeight:800,fontSize:12,whiteSpace:"nowrap",color:"#1B4332"}}>{weekLabel}</div>
+            <button onClick={()=>{setShowCalendar(!showCalendar);setCalViewMonth(new Date(weekStart.getFullYear(),weekStart.getMonth(),1));}} style={{background:"none",border:"none",color:"#2D6A4F",cursor:"pointer",fontSize:10,padding:"2px 0",fontFamily:"inherit",fontWeight:700}}>📅 Pick a date ▾</button>
+          </div>
+          <button onClick={goToNext} style={{background:"none",border:"none",color:"#1B4332",cursor:"pointer",fontSize:18,lineHeight:1,padding:"0 3px"}}>›</button>
+          {showCalendar&&(()=>{
+            const yr=calViewMonth.getFullYear(),mo=calViewMonth.getMonth();
+            const mName=calViewMonth.toLocaleDateString("en-US",{month:"long",year:"numeric"});
+            const fd=new Date(yr,mo,1).getDay(),dim=new Date(yr,mo+1,0).getDate();
+            const off=fd===0?6:fd-1; const cells=[]; for(let i=0;i<off;i++)cells.push(null); for(let d=1;d<=dim;d++)cells.push(new Date(yr,mo,d));
+            while(cells.length%7!==0)cells.push(null);
+            const weeks=[]; for(let i=0;i<cells.length;i+=7)weeks.push(cells.slice(i,i+7));
+            const today=new Date();
+            return(
+              <div style={{position:"absolute",top:"calc(100% + 10px)",right:0,background:"white",borderRadius:16,boxShadow:"0 12px 40px rgba(0,0,0,0.25)",padding:16,zIndex:2000,minWidth:280,color:"#1E293B"}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+                  <button onClick={()=>setCalViewMonth(new Date(yr,mo-1,1))} style={{background:"#F0F7F4",border:"none",borderRadius:8,width:30,height:30,cursor:"pointer",fontSize:16,color:"#2D6A4F",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700}}>‹</button>
+                  <span style={{fontWeight:800,fontSize:14,color:"#1B4332"}}>{mName}</span>
+                  <button onClick={()=>setCalViewMonth(new Date(yr,mo+1,1))} style={{background:"#F0F7F4",border:"none",borderRadius:8,width:30,height:30,cursor:"pointer",fontSize:16,color:"#2D6A4F",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700}}>›</button>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",marginBottom:4}}>
+                  {["Mo","Tu","We","Th","Fr","Sa","Su"].map(d=><div key={d} style={{textAlign:"center",fontSize:10,fontWeight:800,color:"#94A3B8",padding:"3px 0"}}>{d}</div>)}
+                </div>
+                {weeks.map((week,wi)=>{
+                  const fv=week.find(d=>d!==null),ws2=fv?getWeekStart(fv):null;
+                  const isSel=ws2&&weekStart.toDateString()===ws2.toDateString();
+                  return(
+                    <div key={wi} onClick={()=>{if(ws2){setWeekStart(ws2);setShowCalendar(false);}}}
+                      style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",borderRadius:8,cursor:fv?"pointer":"default",background:isSel?"#D8F3DC":"transparent",marginBottom:2,transition:"background 0.12s"}}
+                      onMouseEnter={e=>{if(!isSel&&fv)e.currentTarget.style.background="#F0F7F4";}}
+                      onMouseLeave={e=>{if(!isSel)e.currentTarget.style.background="transparent";}}>
+                      {week.map((day,di)=>{ const isT=day&&day.toDateString()===today.toDateString();
+                        return<div key={di} style={{textAlign:"center",padding:"5px 2px",fontSize:12,fontWeight:isT?900:isSel?800:500,color:day?(isT?"#1B4332":"#374151"):"transparent",borderRadius:6,background:isT?"#95D5B2":"transparent"}}>{day?day.getDate():""}</div>;
+                      })}
+                    </div>
+                  );
+                })}
+                <div style={{textAlign:"center",marginTop:10,fontSize:11,color:"#94A3B8",fontWeight:600}}>Click any row to jump to that week</div>
+                <button onClick={()=>setShowCalendar(false)} style={{marginTop:8,width:"100%",padding:8,borderRadius:9,border:"none",background:"#F0F7F4",color:"#2D6A4F",fontWeight:800,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Close</button>
+              </div>
+            );
+          })()}
+        </div>
       </div>
 
       {/* ── ROOM LEGEND BAR ── */}
