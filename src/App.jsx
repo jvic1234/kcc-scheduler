@@ -1,4 +1,4 @@
-import { useState, useEffect, createContext, useContext } from "react";
+import { useState, useEffect, useRef, createContext, useContext } from "react";
 import { createClient } from "@supabase/supabase-js";
 import KidsConnectionScheduler from "./daycare-scheduler";
 
@@ -41,8 +41,7 @@ function AuthProvider({ children }) {
 const useAuth = () => useContext(AuthContext);
 
 // ─── Supabase storage shim ────────────────────────────────────────────────────
-// The scheduler calls window.storage.get/set with a plain key ("kcc-v1").
-// We namespace by userId so each account has isolated data in the schedule table.
+// Install synchronously so window.storage is ready before scheduler mounts.
 function installStorageShim(userId) {
   window.storage = {
     get: async (key) => {
@@ -61,7 +60,10 @@ function installStorageShim(userId) {
       const { error } = await supabase
         .from("schedule")
         .upsert({ id: scopedKey, data: parsed, updated_at: new Date().toISOString() });
-      if (error) return null;
+      if (error) {
+        console.error("Storage save error:", error);
+        return null;
+      }
       return { key, value };
     },
     delete: async (key) => {
@@ -160,14 +162,15 @@ function AuthScreen() {
 }
 
 // ─── Authenticated shell ──────────────────────────────────────────────────────
-// Installs the storage shim then renders the scheduler.
-// A floating sign-out pill sits above the scheduler's own header.
 function SchedulerShell() {
   const { session, signOut } = useAuth();
 
-  useEffect(() => {
+  // Install shim SYNCHRONOUSLY during render — before scheduler's useEffect fires
+  const shimInstalledRef = useRef(false);
+  if (!shimInstalledRef.current) {
     installStorageShim(session.user.id);
-  }, [session.user.id]);
+    shimInstalledRef.current = true;
+  }
 
   return (
     <>
