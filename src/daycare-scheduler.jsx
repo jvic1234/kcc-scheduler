@@ -522,7 +522,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
             ))}
           </button>
           {showUserMenu&&(
-            <div style={{position:"absolute",top:"calc(100% + 8px)",right:0,background:"white",borderRadius:14,padding:"14px 16px",boxShadow:"0 8px 32px rgba(0,0,0,0.18)",border:"1px solid #E2E8F0",minWidth:220,zIndex:3000}}>
+            <div style={{position:"absolute",bottom:"calc(100% + 8px)",right:0,background:"white",borderRadius:14,padding:"14px 16px",boxShadow:"0 8px 32px rgba(0,0,0,0.18)",border:"1px solid #E2E8F0",minWidth:220,zIndex:3000}}>
               <div style={{fontSize:11,fontWeight:800,color:"#94A3B8",letterSpacing:"0.5px",marginBottom:6,textTransform:"uppercase"}}>Signed in as</div>
               <div style={{fontSize:13,fontWeight:700,color:"#1E293B",marginBottom:14,wordBreak:"break-all"}}>{userEmail}</div>
               <button
