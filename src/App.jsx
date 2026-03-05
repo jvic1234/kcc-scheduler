@@ -4,8 +4,8 @@ import { createClient } from "@supabase/supabase-js";
 // ─────────────────────────────────────────────
 // 🔧 CONFIGURATION — replace with your project values
 // ─────────────────────────────────────────────
-const SUPABASE_URL = "https://your-project.supabase.co";
-const SUPABASE_ANON_KEY = "your-anon-key";
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -325,7 +325,7 @@ function AuthScreen() {
     <div style={S.page}>
       <div style={S.center}>
         <div style={S.card}>
-          <div style={S.logo}>YourApp</div>
+          <div style={S.logo}>Kids Connection Childcare</div>
           <p style={S.subtitle}>
             {mode === "login" ? "Welcome back — sign in to continue." : "Create your account below."}
           </p>
@@ -440,7 +440,7 @@ function Dashboard() {
   return (
     <div style={S.dash}>
       <nav style={S.navbar}>
-        <div style={S.navLogo}>YourApp</div>
+        <div style={S.navLogo}>Kids Connection Childcare</div>
         <div style={S.navRight}>
           <span style={S.userEmail}>{session.user.email}</span>
           <button style={S.signOutBtn} onClick={signOut}>Sign out</button>
