@@ -36,13 +36,15 @@ export default async function handler(req, res) {
 
     <!-- Header: white background with logo -->
     <div style="background:white;padding:28px 32px 20px;text-align:center;border-bottom:4px solid #F5F5F5;">
-      <!-- Coloured letter blocks -->
-      <div style="display:inline-flex;gap:6px;margin-bottom:10px;">
-        <div style="width:44px;height:44px;background:#8DC63F;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;font-size:22px;font-weight:900;color:white;font-family:Arial,sans-serif;">K</div>
-        <div style="width:44px;height:44px;background:#F06EAA;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;font-size:22px;font-weight:900;color:white;font-family:Arial,sans-serif;">I</div>
-        <div style="width:44px;height:44px;background:#4FC3F7;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;font-size:22px;font-weight:900;color:white;font-family:Arial,sans-serif;">D</div>
-        <div style="width:44px;height:44px;background:#FFB74D;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;font-size:22px;font-weight:900;color:white;font-family:Arial,sans-serif;">S</div>
-      </div>
+      <!-- Coloured letter blocks using table for email compatibility -->
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto 10px;">
+        <tr>
+          <td style="width:44px;height:44px;background:#8DC63F;border-radius:10px;text-align:center;vertical-align:middle;font-size:22px;font-weight:900;color:white;font-family:Arial,sans-serif;padding:0 6px 0 0;">K</td>
+          <td style="width:44px;height:44px;background:#F06EAA;border-radius:10px;text-align:center;vertical-align:middle;font-size:22px;font-weight:900;color:white;font-family:Arial,sans-serif;padding:0 6px 0 0;">I</td>
+          <td style="width:44px;height:44px;background:#4FC3F7;border-radius:10px;text-align:center;vertical-align:middle;font-size:22px;font-weight:900;color:white;font-family:Arial,sans-serif;padding:0 6px 0 0;">D</td>
+          <td style="width:44px;height:44px;background:#FFB74D;border-radius:10px;text-align:center;vertical-align:middle;font-size:22px;font-weight:900;color:white;font-family:Arial,sans-serif;">S</td>
+        </tr>
+      </table>
       <div style="font-size:13px;font-weight:800;color:#1E3A8A;letter-spacing:1.5px;text-transform:uppercase;">Connection Childcare</div>
     </div>
 
@@ -69,20 +71,38 @@ export default async function handler(req, res) {
       <!-- How it works -->
       <div style="margin-bottom:24px;">
         <div style="font-size:12px;font-weight:800;color:#94A3B8;letter-spacing:1px;text-transform:uppercase;margin-bottom:14px;">How it works</div>
-        <div style="display:flex;flex-direction:column;gap:10px;">
-          <div style="display:flex;align-items:flex-start;gap:12px;">
-            <div style="width:32px;height:32px;background:#F0F9FF;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;">📱</div>
-            <div style="font-size:13px;color:#475569;line-height:1.6;padding-top:6px;"><strong style="color:#1E293B;">iPhone:</strong> Tap the button → Safari opens → tap "Subscribe" → done!</div>
-          </div>
-          <div style="display:flex;align-items:flex-start;gap:12px;">
-            <div style="width:32px;height:32px;background:#F0FDF4;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;">🤖</div>
-            <div style="font-size:13px;color:#475569;line-height:1.6;padding-top:6px;"><strong style="color:#1E293B;">Android:</strong> Tap the button → Google Calendar opens → tap "Yes" → done!</div>
-          </div>
-          <div style="display:flex;align-items:flex-start;gap:12px;">
-            <div style="width:32px;height:32px;background:#FFF9F0;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;">🔄</div>
-            <div style="font-size:13px;color:#475569;line-height:1.6;padding-top:6px;"><strong style="color:#1E293B;">Auto-updates:</strong> Schedule changes appear in your calendar automatically.</div>
-          </div>
-        </div>
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr>
+            <td style="padding-bottom:10px;">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td style="width:32px;height:32px;background:#F0F9FF;border-radius:8px;text-align:center;vertical-align:middle;font-size:16px;padding-right:12px;">📱</td>
+                  <td style="font-size:13px;color:#475569;line-height:1.6;vertical-align:middle;"><strong style="color:#1E293B;">iPhone:</strong> Tap the button → Safari opens → tap "Subscribe" → done!</td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding-bottom:10px;">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td style="width:32px;height:32px;background:#F0FDF4;border-radius:8px;text-align:center;vertical-align:middle;font-size:16px;padding-right:12px;">🤖</td>
+                  <td style="font-size:13px;color:#475569;line-height:1.6;vertical-align:middle;"><strong style="color:#1E293B;">Android:</strong> Tap the button → Google Calendar opens → tap "Yes" → done!</td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td>
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td style="width:32px;height:32px;background:#FFF9F0;border-radius:8px;text-align:center;vertical-align:middle;font-size:16px;padding-right:12px;">🔄</td>
+                  <td style="font-size:13px;color:#475569;line-height:1.6;vertical-align:middle;"><strong style="color:#1E293B;">Auto-updates:</strong> Schedule changes appear in your calendar automatically.</td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
       </div>
 
       <!-- Manual link -->
