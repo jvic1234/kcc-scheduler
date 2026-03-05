@@ -11,6 +11,8 @@ export default async function handler(req, res) {
 
   const firstName = toName.split(" ")[0];
   const subscribeUrl = webcalUrl.replace(/^https?:\/\//, "webcal://");
+  const staffId = webcalUrl.split("/").pop();
+  const subscribeHttpUrl = `https://kcc-scheduler.vercel.app/api/subscribe/${staffId}`;
 
   try {
     const response = await fetch("https://api.resend.com/emails", {
@@ -47,7 +49,7 @@ export default async function handler(req, res) {
       </p>
 
       <div style="text-align:center;margin:28px 0;">
-        <a href="${subscribeUrl}" style="display:inline-block;background:linear-gradient(135deg,#1E3A8A,#2D4FA0);color:white;font-weight:800;font-size:15px;padding:14px 32px;border-radius:12px;text-decoration:none;">
+        <a href="${subscribeHttpUrl}" style="display:inline-block;background:linear-gradient(135deg,#1E3A8A,#2D4FA0);color:white;font-weight:800;font-size:15px;padding:14px 32px;border-radius:12px;text-decoration:none;">
           📅 Subscribe to My Schedule
         </a>
       </div>
