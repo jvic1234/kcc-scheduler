@@ -10,7 +10,7 @@ export default async function handler(req, res) {
   }
 
   const firstName = toName.split(" ")[0];
-  const subscribeUrl = webcalUrl.replace(/^https?:\/\//, "webcal://");
+  const subscribeUrl = webcalUrl.replace(/^https?:\/\//, "webcals://");
   const staffId = webcalUrl.split("/").pop();
   const subscribeHttpUrl = `https://kcc-scheduler.vercel.app/api/subscribe/${staffId}`;
 
