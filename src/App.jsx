@@ -1,17 +1,13 @@
 import { useState, useEffect, createContext, useContext } from "react";
 import { createClient } from "@supabase/supabase-js";
+import KidsConnectionScheduler from "./daycare-scheduler";
 
-// ─────────────────────────────────────────────
-// 🔧 CONFIGURATION — replace with your project values
-// ─────────────────────────────────────────────
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+// ─── Supabase client ──────────────────────────────────────────────────────────
+const SUPABASE_URL      = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// ─────────────────────────────────────────────
-// AUTH CONTEXT
-// ─────────────────────────────────────────────
+// ─── Auth context ─────────────────────────────────────────────────────────────
 const AuthContext = createContext(null);
 
 function AuthProvider({ children }) {
@@ -23,24 +19,20 @@ function AuthProvider({ children }) {
       setSession(session);
       setLoading(false);
     });
-
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((_e, session) => {
       setSession(session);
     });
-
     return () => listener.subscription.unsubscribe();
   }, []);
 
-  const signIn = (email, password) =>
-    supabase.auth.signInWithPassword({ email, password });
-
-  const signUp = (email, password) =>
-    supabase.auth.signUp({ email, password });
-
-  const signOut = () => supabase.auth.signOut();
-
   return (
-    <AuthContext.Provider value={{ session, loading, signIn, signUp, signOut }}>
+    <AuthContext.Provider value={{
+      session,
+      loading,
+      signIn:  (email, pw) => supabase.auth.signInWithPassword({ email, password: pw }),
+      signUp:  (email, pw) => supabase.auth.signUp({ email, password: pw }),
+      signOut: ()          => supabase.auth.signOut(),
+    }}>
       {children}
     </AuthContext.Provider>
   );
@@ -48,261 +40,76 @@ function AuthProvider({ children }) {
 
 const useAuth = () => useContext(AuthContext);
 
-// ─────────────────────────────────────────────
-// STYLES (inline CSS-in-JS object map)
-// ─────────────────────────────────────────────
-const S = {
-  // Layout
-  page: {
-    minHeight: "100vh",
-    background: "#0a0a0f",
-    color: "#e8e6f0",
-    fontFamily: "'DM Sans', 'Segoe UI', sans-serif",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  center: {
-    width: "100%",
-    maxWidth: 420,
-    padding: "0 20px",
-  },
-  // Auth card
-  card: {
-    background: "linear-gradient(135deg, #16141f 0%, #1c1929 100%)",
-    border: "1px solid rgba(255,255,255,0.08)",
-    borderRadius: 20,
-    padding: "40px 36px",
-    boxShadow: "0 32px 80px rgba(0,0,0,0.6)",
-  },
-  logo: {
-    fontSize: 28,
-    fontWeight: 800,
-    letterSpacing: "-0.5px",
-    marginBottom: 6,
-    background: "linear-gradient(135deg, #c084fc, #818cf8)",
-    WebkitBackgroundClip: "text",
-    WebkitTextFillColor: "transparent",
-  },
-  subtitle: {
-    color: "#6b6880",
-    fontSize: 14,
-    marginBottom: 32,
-  },
-  // Form
-  label: {
-    display: "block",
-    fontSize: 12,
-    fontWeight: 600,
-    letterSpacing: "0.06em",
-    textTransform: "uppercase",
-    color: "#9490a8",
-    marginBottom: 8,
-  },
-  input: {
-    width: "100%",
-    padding: "12px 16px",
-    background: "rgba(255,255,255,0.04)",
-    border: "1px solid rgba(255,255,255,0.1)",
-    borderRadius: 10,
-    color: "#e8e6f0",
-    fontSize: 15,
-    outline: "none",
-    boxSizing: "border-box",
-    transition: "border-color 0.2s",
-  },
-  inputFocus: {
-    borderColor: "rgba(192,132,252,0.5)",
-  },
-  fieldGroup: {
-    marginBottom: 20,
-  },
-  btn: {
-    width: "100%",
-    padding: "13px 24px",
-    background: "linear-gradient(135deg, #c084fc, #818cf8)",
-    border: "none",
-    borderRadius: 10,
-    color: "#fff",
-    fontSize: 15,
-    fontWeight: 700,
-    cursor: "pointer",
-    marginTop: 8,
-    transition: "opacity 0.2s, transform 0.1s",
-  },
-  btnSecondary: {
-    background: "transparent",
-    border: "1px solid rgba(255,255,255,0.12)",
-    color: "#9490a8",
-    marginTop: 10,
-  },
-  error: {
-    background: "rgba(239,68,68,0.1)",
-    border: "1px solid rgba(239,68,68,0.3)",
-    color: "#fca5a5",
-    borderRadius: 8,
-    padding: "10px 14px",
-    fontSize: 13,
-    marginBottom: 16,
-  },
-  success: {
-    background: "rgba(34,197,94,0.1)",
-    border: "1px solid rgba(34,197,94,0.3)",
-    color: "#86efac",
-    borderRadius: 8,
-    padding: "10px 14px",
-    fontSize: 13,
-    marginBottom: 16,
-  },
-  // Dashboard
-  dash: {
-    minHeight: "100vh",
-    background: "#0a0a0f",
-    color: "#e8e6f0",
-    fontFamily: "'DM Sans', 'Segoe UI', sans-serif",
-  },
-  navbar: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: "20px 40px",
-    borderBottom: "1px solid rgba(255,255,255,0.06)",
-    background: "rgba(16,14,25,0.8)",
-    backdropFilter: "blur(12px)",
-    position: "sticky",
-    top: 0,
-    zIndex: 10,
-  },
-  navLogo: {
-    fontSize: 20,
-    fontWeight: 800,
-    background: "linear-gradient(135deg, #c084fc, #818cf8)",
-    WebkitBackgroundClip: "text",
-    WebkitTextFillColor: "transparent",
-  },
-  navRight: {
-    display: "flex",
-    alignItems: "center",
-    gap: 16,
-  },
-  userEmail: {
-    fontSize: 13,
-    color: "#6b6880",
-  },
-  signOutBtn: {
-    padding: "7px 16px",
-    background: "transparent",
-    border: "1px solid rgba(255,255,255,0.12)",
-    borderRadius: 8,
-    color: "#9490a8",
-    fontSize: 13,
-    cursor: "pointer",
-  },
-  main: {
-    maxWidth: 860,
-    margin: "0 auto",
-    padding: "40px 24px",
-  },
-  heading: {
-    fontSize: 26,
-    fontWeight: 800,
-    marginBottom: 6,
-    letterSpacing: "-0.3px",
-  },
-  muted: {
-    color: "#6b6880",
-    fontSize: 14,
-    marginBottom: 32,
-  },
-  // Data section
-  addRow: {
-    display: "flex",
-    gap: 10,
-    marginBottom: 24,
-  },
-  addInput: {
-    flex: 1,
-    padding: "11px 16px",
-    background: "rgba(255,255,255,0.04)",
-    border: "1px solid rgba(255,255,255,0.1)",
-    borderRadius: 10,
-    color: "#e8e6f0",
-    fontSize: 14,
-    outline: "none",
-    boxSizing: "border-box",
-  },
-  addBtn: {
-    padding: "11px 22px",
-    background: "linear-gradient(135deg, #c084fc, #818cf8)",
-    border: "none",
-    borderRadius: 10,
-    color: "#fff",
-    fontSize: 14,
-    fontWeight: 700,
-    cursor: "pointer",
-    whiteSpace: "nowrap",
-  },
-  table: {
-    width: "100%",
-    borderCollapse: "collapse",
-    fontSize: 14,
-  },
-  th: {
-    textAlign: "left",
-    padding: "10px 16px",
-    fontSize: 11,
-    fontWeight: 700,
-    letterSpacing: "0.08em",
-    textTransform: "uppercase",
-    color: "#6b6880",
-    borderBottom: "1px solid rgba(255,255,255,0.06)",
-  },
-  td: {
-    padding: "14px 16px",
-    borderBottom: "1px solid rgba(255,255,255,0.04)",
-    color: "#d1cfe0",
-    verticalAlign: "middle",
-  },
-  deleteBtn: {
-    background: "transparent",
-    border: "1px solid rgba(239,68,68,0.25)",
-    borderRadius: 6,
-    color: "#f87171",
-    padding: "4px 12px",
-    fontSize: 12,
-    cursor: "pointer",
-  },
-  empty: {
-    textAlign: "center",
-    padding: "48px 0",
-    color: "#4a4760",
-  },
-  loadingDot: {
-    display: "inline-block",
-    width: 8,
-    height: 8,
-    borderRadius: "50%",
-    background: "#c084fc",
-    animation: "pulse 1.2s infinite",
-  },
-};
+// ─── Supabase storage shim ────────────────────────────────────────────────────
+// The scheduler calls window.storage.get/set with a plain key ("kcc-v1").
+// We namespace by userId so each account has isolated data in the schedule table.
+function installStorageShim(userId) {
+  window.storage = {
+    get: async (key) => {
+      const scopedKey = `${userId}:${key}`;
+      const { data, error } = await supabase
+        .from("schedule")
+        .select("data")
+        .eq("id", scopedKey)
+        .maybeSingle();
+      if (error || !data) throw new Error("key not found");
+      return { key, value: JSON.stringify(data.data) };
+    },
+    set: async (key, value) => {
+      const scopedKey = `${userId}:${key}`;
+      const parsed = JSON.parse(value);
+      const { error } = await supabase
+        .from("schedule")
+        .upsert({ id: scopedKey, data: parsed, updated_at: new Date().toISOString() });
+      if (error) return null;
+      return { key, value };
+    },
+    delete: async (key) => {
+      const scopedKey = `${userId}:${key}`;
+      await supabase.from("schedule").delete().eq("id", scopedKey);
+      return { key, deleted: true };
+    },
+    list: async (prefix) => {
+      const scopedPrefix = `${userId}:${prefix || ""}`;
+      const { data } = await supabase
+        .from("schedule")
+        .select("id")
+        .like("id", `${scopedPrefix}%`);
+      const keys = (data || []).map(r => r.id.replace(`${userId}:`, ""));
+      return { keys };
+    },
+  };
+}
 
-// ─────────────────────────────────────────────
-// AUTH SCREEN  (Login / Sign-up)
-// ─────────────────────────────────────────────
+// ─── Login / Sign-up screen ───────────────────────────────────────────────────
 function AuthScreen() {
   const { signIn, signUp } = useAuth();
-  const [mode, setMode] = useState("login"); // "login" | "signup"
-  const [email, setEmail] = useState("");
+  const [mode,     setMode]     = useState("login");
+  const [email,    setEmail]    = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [info, setInfo] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [focused, setFocused] = useState("");
+  const [error,    setError]    = useState("");
+  const [info,     setInfo]     = useState("");
+  const [busy,     setBusy]     = useState(false);
+  const [focused,  setFocused]  = useState("");
 
-  const handleSubmit = async () => {
-    setError("");
-    setInfo("");
+  const S = {
+    page:     { minHeight:"100vh", background:"#0a0a0f", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'DM Sans','Segoe UI',sans-serif" },
+    center:   { width:"100%", maxWidth:420, padding:"0 20px" },
+    card:     { background:"linear-gradient(135deg,#16141f,#1c1929)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:20, padding:"40px 36px", boxShadow:"0 32px 80px rgba(0,0,0,0.6)" },
+    logo:     { fontSize:26, fontWeight:800, marginBottom:6, background:"linear-gradient(135deg,#c084fc,#818cf8)", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent" },
+    sub:      { color:"#6b6880", fontSize:14, marginBottom:32 },
+    label:    { display:"block", fontSize:12, fontWeight:600, letterSpacing:"0.06em", textTransform:"uppercase", color:"#9490a8", marginBottom:8 },
+    input:    { width:"100%", padding:"12px 16px", background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:10, color:"#e8e6f0", fontSize:15, outline:"none", boxSizing:"border-box" },
+    inputFoc: { borderColor:"rgba(192,132,252,0.5)" },
+    group:    { marginBottom:20 },
+    btn:      { width:"100%", padding:"13px 24px", background:"linear-gradient(135deg,#c084fc,#818cf8)", border:"none", borderRadius:10, color:"#fff", fontSize:15, fontWeight:700, cursor:"pointer", marginTop:8 },
+    btnSec:   { background:"transparent", border:"1px solid rgba(255,255,255,0.12)", color:"#9490a8" },
+    err:      { background:"rgba(239,68,68,0.1)", border:"1px solid rgba(239,68,68,0.3)", color:"#fca5a5", borderRadius:8, padding:"10px 14px", fontSize:13, marginBottom:16 },
+    ok:       { background:"rgba(34,197,94,0.1)", border:"1px solid rgba(34,197,94,0.3)", color:"#86efac", borderRadius:8, padding:"10px 14px", fontSize:13, marginBottom:16 },
+  };
+
+  const handle = async () => {
+    setError(""); setInfo("");
     if (!email || !password) return setError("Please fill in all fields.");
     setBusy(true);
     try {
@@ -314,70 +121,37 @@ function AuthScreen() {
         if (error) throw error;
         setInfo("Check your email to confirm your account.");
       }
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setBusy(false);
-    }
+    } catch (e) { setError(e.message); }
+    finally { setBusy(false); }
   };
 
   return (
     <div style={S.page}>
       <div style={S.center}>
         <div style={S.card}>
-          <div style={S.logo}>Kids Connection Childcare</div>
-          <p style={S.subtitle}>
-            {mode === "login" ? "Welcome back — sign in to continue." : "Create your account below."}
-          </p>
-
-          {error && <div style={S.error}>{error}</div>}
-          {info && <div style={S.success}>{info}</div>}
-
-          <div style={S.fieldGroup}>
-            <label style={S.label}>Email</label>
-            <input
-              style={{ ...S.input, ...(focused === "email" ? S.inputFocus : {}) }}
-              type="email"
-              placeholder="you@example.com"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              onFocus={() => setFocused("email")}
-              onBlur={() => setFocused("")}
-              onKeyDown={e => e.key === "Enter" && handleSubmit()}
-            />
-          </div>
-
-          <div style={S.fieldGroup}>
-            <label style={S.label}>Password</label>
-            <input
-              style={{ ...S.input, ...(focused === "pass" ? S.inputFocus : {}) }}
-              type="password"
-              placeholder="••••••••"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              onFocus={() => setFocused("pass")}
-              onBlur={() => setFocused("")}
-              onKeyDown={e => e.key === "Enter" && handleSubmit()}
-            />
-          </div>
-
-          <button
-            style={{ ...S.btn, opacity: busy ? 0.7 : 1 }}
-            onClick={handleSubmit}
-            disabled={busy}
-          >
-            {busy ? "Please wait…" : mode === "login" ? "Sign In" : "Create Account"}
+          <div style={S.logo}>🌱 Kids Connection Childcare</div>
+          <p style={S.sub}>{mode === "login" ? "Welcome back — sign in to continue." : "Create your account below."}</p>
+          {error && <div style={S.err}>{error}</div>}
+          {info  && <div style={S.ok}>{info}</div>}
+          {[["Email","email",email,setEmail,"email"],["Password","pass",password,setPassword,"password"]].map(([label,id,val,set,type]) => (
+            <div key={id} style={S.group}>
+              <label style={S.label}>{label}</label>
+              <input
+                style={{ ...S.input, ...(focused===id ? S.inputFoc : {}) }}
+                type={type} value={val}
+                placeholder={type==="email" ? "you@example.com" : "••••••••"}
+                onChange={e => set(e.target.value)}
+                onFocus={() => setFocused(id)}
+                onBlur={()  => setFocused("")}
+                onKeyDown={e => e.key==="Enter" && handle()}
+              />
+            </div>
+          ))}
+          <button style={{ ...S.btn, opacity: busy ? 0.7 : 1 }} onClick={handle} disabled={busy}>
+            {busy ? "Please wait…" : mode==="login" ? "Sign In" : "Create Account"}
           </button>
-
-          <button
-            style={{ ...S.btn, ...S.btnSecondary }}
-            onClick={() => {
-              setMode(mode === "login" ? "signup" : "login");
-              setError("");
-              setInfo("");
-            }}
-          >
-            {mode === "login" ? "Don't have an account? Sign up" : "Already have an account? Sign in"}
+          <button style={{ ...S.btn, ...S.btnSec }} onClick={() => { setMode(m => m==="login"?"signup":"login"); setError(""); setInfo(""); }}>
+            {mode==="login" ? "Don't have an account? Sign up" : "Already have an account? Sign in"}
           </button>
         </div>
       </div>
@@ -385,150 +159,73 @@ function AuthScreen() {
   );
 }
 
-// ─────────────────────────────────────────────
-// DASHBOARD (authenticated)
-// Replace "items" table with your own table name
-// ─────────────────────────────────────────────
-function Dashboard() {
+// ─── Authenticated shell ──────────────────────────────────────────────────────
+// Installs the storage shim then renders the scheduler.
+// A floating sign-out pill sits above the scheduler's own header.
+function SchedulerShell() {
   const { session, signOut } = useAuth();
-  const [items, setItems] = useState([]);
-  const [newItem, setNewItem] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
 
-  // ── Fetch rows belonging to the current user ──
   useEffect(() => {
-    fetchItems();
-  }, []);
-
-  async function fetchItems() {
-    setLoading(true);
-    const { data, error } = await supabase
-      .from("items")               // 🔧 change table name
-      .select("*")
-      .eq("user_id", session.user.id)
-      .order("created_at", { ascending: false });
-
-    if (error) setError(error.message);
-    else setItems(data || []);
-    setLoading(false);
-  }
-
-  // ── Insert a new row ──
-  async function addItem() {
-    if (!newItem.trim()) return;
-    const { error } = await supabase
-      .from("items")               // 🔧 change table name
-      .insert({ name: newItem.trim(), user_id: session.user.id });
-
-    if (error) return setError(error.message);
-    setNewItem("");
-    fetchItems();
-  }
-
-  // ── Delete a row ──
-  async function deleteItem(id) {
-    const { error } = await supabase
-      .from("items")               // 🔧 change table name
-      .delete()
-      .eq("id", id);
-
-    if (error) return setError(error.message);
-    setItems(prev => prev.filter(i => i.id !== id));
-  }
+    installStorageShim(session.user.id);
+  }, [session.user.id]);
 
   return (
-    <div style={S.dash}>
-      <nav style={S.navbar}>
-        <div style={S.navLogo}>Kids Connection Childcare</div>
-        <div style={S.navRight}>
-          <span style={S.userEmail}>{session.user.email}</span>
-          <button style={S.signOutBtn} onClick={signOut}>Sign out</button>
-        </div>
-      </nav>
+    <>
+      {/* Floating sign-out pill */}
+      <div style={{
+        position:"fixed", top:14, right:18, zIndex:9999,
+        display:"flex", alignItems:"center", gap:10,
+        background:"rgba(255,255,255,0.92)", backdropFilter:"blur(8px)",
+        border:"1px solid #E2E8F0", borderRadius:999,
+        padding:"6px 14px 6px 10px",
+        boxShadow:"0 2px 12px rgba(0,0,0,0.12)",
+        fontFamily:"'Nunito',sans-serif",
+      }}>
+        <span style={{ fontSize:11, color:"#64748B", fontWeight:600, maxWidth:180, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+          {session.user.email}
+        </span>
+        <button
+          onClick={signOut}
+          style={{
+            padding:"4px 12px", borderRadius:999,
+            border:"1px solid #CBD5E1", background:"white",
+            color:"#475569", fontSize:12, fontWeight:700,
+            cursor:"pointer", fontFamily:"inherit",
+          }}
+        >
+          Sign out
+        </button>
+      </div>
 
-      <main style={S.main}>
-        <h1 style={S.heading}>Dashboard</h1>
-        <p style={S.muted}>Manage your items below. Data is stored in Supabase.</p>
-
-        {error && <div style={S.error}>{error}</div>}
-
-        {/* ── Add row ── */}
-        <div style={S.addRow}>
-          <input
-            style={S.addInput}
-            placeholder="Enter item name…"
-            value={newItem}
-            onChange={e => setNewItem(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && addItem()}
-          />
-          <button style={S.addBtn} onClick={addItem}>+ Add</button>
-        </div>
-
-        {/* ── Table ── */}
-        {loading ? (
-          <div style={S.empty}><span style={S.loadingDot} /> Loading…</div>
-        ) : items.length === 0 ? (
-          <div style={S.empty}>No items yet — add one above.</div>
-        ) : (
-          <table style={S.table}>
-            <thead>
-              <tr>
-                <th style={S.th}>Name</th>
-                <th style={S.th}>Created</th>
-                <th style={{ ...S.th, textAlign: "right" }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map(item => (
-                <tr key={item.id}>
-                  <td style={S.td}>{item.name}</td>
-                  <td style={{ ...S.td, color: "#6b6880" }}>
-                    {new Date(item.created_at).toLocaleDateString("en-US", {
-                      month: "short", day: "numeric", year: "numeric",
-                    })}
-                  </td>
-                  <td style={{ ...S.td, textAlign: "right" }}>
-                    <button style={S.deleteBtn} onClick={() => deleteItem(item.id)}>
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </main>
-    </div>
+      <KidsConnectionScheduler />
+    </>
   );
 }
 
-// ─────────────────────────────────────────────
-// ROOT
-// ─────────────────────────────────────────────
+// ─── Root ─────────────────────────────────────────────────────────────────────
 function AppInner() {
   const { session, loading } = useAuth();
 
   if (loading) {
     return (
-      <div style={{ ...S.page, flexDirection: "column", gap: 16 }}>
-        <span style={S.loadingDot} />
+      <div style={{ minHeight:"100vh", background:"#0a0a0f", display:"flex", alignItems:"center", justifyContent:"center" }}>
+        <div style={{ width:10, height:10, borderRadius:"50%", background:"#c084fc", animation:"pulse 1.2s infinite" }} />
       </div>
     );
   }
 
-  return session ? <Dashboard /> : <AuthScreen />;
+  return session ? <SchedulerShell /> : <AuthScreen />;
 }
 
 export default function App() {
   return (
     <AuthProvider>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700;800&display=swap');
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { background: #0a0a0f; }
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700;800&family=Nunito:wght@400;600;700;800;900&display=swap');
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { background:#f8fafc; }
         @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
-        input::placeholder { color: #3d3a4e; }
+        input::placeholder { color:#94A3B8; }
       `}</style>
       <AppInner />
     </AuthProvider>
