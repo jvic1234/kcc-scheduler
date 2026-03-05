@@ -86,7 +86,6 @@ function installStorageShim(userId) {
 // ─── Login / Sign-up screen ───────────────────────────────────────────────────
 function AuthScreen() {
   const { signIn, signUp } = useAuth();
-  const [mode,     setMode]     = useState("login");
   const [email,    setEmail]    = useState("");
   const [password, setPassword] = useState("");
   const [error,    setError]    = useState("");
@@ -115,14 +114,8 @@ function AuthScreen() {
     if (!email || !password) return setError("Please fill in all fields.");
     setBusy(true);
     try {
-      if (mode === "login") {
-        const { error } = await signIn(email, password);
-        if (error) throw error;
-      } else {
-        const { error } = await signUp(email, password);
-        if (error) throw error;
-        setInfo("Check your email to confirm your account.");
-      }
+      const { error } = await signIn(email, password);
+      if (error) throw error;
     } catch (e) { setError(e.message); }
     finally { setBusy(false); }
   };
@@ -132,7 +125,7 @@ function AuthScreen() {
       <div style={S.center}>
         <div style={S.card}>
           <div style={S.logo}>🌱 Kids Connection Childcare</div>
-          <p style={S.sub}>{mode === "login" ? "Welcome back — sign in to continue." : "Create your account below."}</p>
+          <p style={S.sub}>Welcome back — sign in to continue.</p>
           {error && <div style={S.err}>{error}</div>}
           {info  && <div style={S.ok}>{info}</div>}
           {[["Email","email",email,setEmail,"email"],["Password","pass",password,setPassword,"password"]].map(([label,id,val,set,type]) => (
@@ -150,11 +143,9 @@ function AuthScreen() {
             </div>
           ))}
           <button style={{ ...S.btn, opacity: busy ? 0.7 : 1 }} onClick={handle} disabled={busy}>
-            {busy ? "Please wait…" : mode==="login" ? "Sign In" : "Create Account"}
+            {busy ? "Please wait…" : "Sign In"}
           </button>
-          <button style={{ ...S.btn, ...S.btnSec }} onClick={() => { setMode(m => m==="login"?"signup":"login"); setError(""); setInfo(""); }}>
-            {mode==="login" ? "Don't have an account? Sign up" : "Already have an account? Sign in"}
-          </button>
+
         </div>
       </div>
     </div>
