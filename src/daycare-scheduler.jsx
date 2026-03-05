@@ -1204,7 +1204,7 @@ function AiAssistant({ loc, staff, rooms, weekLabel, weekIso, DAYS, getCellData,
 
   const attendanceSummary = (DAYS||[]).map((d,i)=>{
     const roomCounts = (rooms||[]).filter(r=>r.name!=="Lunch / Break").map(room=>{
-      const k=`${wiso}|${i}|${room.id}`;
+      const k=`${weekIso}|${i}|${room.id}`;
       const val=attendance?.[k];
       return val ? `${room.name}: ${val}` : null;
     }).filter(Boolean);
