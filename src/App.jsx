@@ -234,7 +234,7 @@ function SchedulerShell() {
         </button>
       </div>
 
-      <KidsConnectionScheduler />
+      <KidsConnectionScheduler userEmail={session.user.email} onSignOut={signOut} />
     </>
   );
 }

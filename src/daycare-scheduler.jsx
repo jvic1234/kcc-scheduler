@@ -152,7 +152,7 @@ function downloadICS(icsContent, filename) {
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
-export default function KidsConnectionScheduler() {
+export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{} }) {
 
   // ── Persisted state ────────────────────────────────────────────────────────
   const [loaded,           setLoaded]           = useState(false);
@@ -186,6 +186,7 @@ export default function KidsConnectionScheduler() {
   const [editingLocId,     setEditingLocId]     = useState(null);
   const [editingLocName,   setEditingLocName]   = useState("");
   const [showCalendar,     setShowCalendar]     = useState(false);
+  const [showUserMenu,     setShowUserMenu]     = useState(false);
   const [calViewMonth,     setCalViewMonth]     = useState(()=>{ const n=new Date(); return new Date(n.getFullYear(),n.getMonth(),1); });
 
   const calRef    = useRef(null);
@@ -502,6 +503,37 @@ export default function KidsConnectionScheduler() {
           ⚙️ Manage Locations
         </button>
         <button onClick={handlePrint} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.25)",color:"white",padding:"7px 14px",borderRadius:10,cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:700,display:"flex",alignItems:"center",gap:5,whiteSpace:"nowrap",flexShrink:0}}>🖨️ Print</button>
+
+        {/* Hamburger user menu */}
+        <div style={{position:"relative",flexShrink:0,marginLeft:4}}>
+          <button
+            onClick={()=>setShowUserMenu(o=>!o)}
+            style={{
+              width:36,height:36,borderRadius:9,
+              background:showUserMenu?"white":"rgba(255,255,255,0.15)",
+              border:"1px solid rgba(255,255,255,0.25)",
+              cursor:"pointer",display:"flex",flexDirection:"column",
+              alignItems:"center",justifyContent:"center",gap:4,flexShrink:0,
+              transition:"background 0.15s",
+            }}
+          >
+            {[0,1,2].map(i=>(
+              <span key={i} style={{display:"block",width:16,height:2,borderRadius:2,background:showUserMenu?"#1E3A8A":"white",transition:"background 0.15s"}}/>
+            ))}
+          </button>
+          {showUserMenu&&(
+            <div style={{position:"absolute",top:"calc(100% + 8px)",right:0,background:"white",borderRadius:14,padding:"14px 16px",boxShadow:"0 8px 32px rgba(0,0,0,0.18)",border:"1px solid #E2E8F0",minWidth:220,zIndex:3000}}>
+              <div style={{fontSize:11,fontWeight:800,color:"#94A3B8",letterSpacing:"0.5px",marginBottom:6,textTransform:"uppercase"}}>Signed in as</div>
+              <div style={{fontSize:13,fontWeight:700,color:"#1E293B",marginBottom:14,wordBreak:"break-all"}}>{userEmail}</div>
+              <button
+                onClick={()=>{setShowUserMenu(false);onSignOut();}}
+                style={{width:"100%",padding:"9px 0",borderRadius:9,border:"1px solid #E2E8F0",background:"#F8FAFC",color:"#DC2626",fontSize:13,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}
+              >
+                🚪 Sign out
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* ── QUICK ACTIONS ── */}
