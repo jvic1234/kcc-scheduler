@@ -93,7 +93,7 @@ function formatDateLong(d) { return d.toLocaleDateString("en-US",{weekday:"long"
 function getWeekDates(ws)  { return DAYS.map((_,i)=>{ const d=new Date(ws); d.setDate(d.getDate()+i); return d; }); }
 function getAvatarColor(id){ return AVATAR_COLORS[id % AVATAR_COLORS.length]; }
 function initials(name)    { return name.split(" ").map(n=>n[0]).join("").slice(0,2).toUpperCase(); }
-function newBlock(s="8:00 AM",e="4:00 PM",r="") { return { id:Date.now()+Math.random(), startTime:s, endTime:e, room:r }; }
+function newBlock(s="8:00 AM",e="4:00 PM",r="") { return { id:Date.now()+Math.random(), startTime:s, endTime:e, room:r, relief:{staffId:"",startTime:"",endTime:""} }; }
 function timeToMins(t) {
   const [time,ap]=t.split(" "); let [h,m]=time.split(":").map(Number);
   if(ap==="PM"&&h!==12)h+=12; if(ap==="AM"&&h===12)h=0; return h*60+m;
@@ -320,13 +320,27 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
   // ── Cell editing ───────────────────────────────────────────────────────────
   const openEdit = (sId,dayIdx) => {
     const ex=getCellData(sId,dayIdx);
-    setEditBlocks(ex?.blocks?.length?ex.blocks.map(b=>({...b})):[newBlock()]);
+    setEditBlocks(ex?.blocks?.length?ex.blocks.map(b=>({...b, relief:b.relief||{staffId:"",startTime:"",endTime:""}})):[newBlock()]);
     setEditCell({sId,dayIdx});
   };
   const saveEdit = () => {
     const valid=editBlocks.filter(b=>b.room&&b.startTime&&b.endTime);
     const ns={...schedule},key=cellKey(editCell.sId,editCell.dayIdx);
     if(valid.length===0)delete ns[key]; else ns[key]={blocks:valid};
+    // Write relief blocks into the relief staff member's schedule
+    valid.forEach(b=>{
+      if(b.relief?.staffId&&b.relief.startTime&&b.relief.endTime){
+        const rKey=cellKey(b.relief.staffId,editCell.dayIdx);
+        const existing=(ns[rKey]?.blocks||[]).filter(rb=>rb.reliefFor!==editCell.sId);
+        const reliefBlock={...newBlock(b.relief.startTime,b.relief.endTime,"Relief"),reliefFor:editCell.sId,reliefNote:`Relief for ${staff.find(s=>s.id===editCell.sId)?.name||""}`};
+        ns[rKey]={blocks:[...existing,reliefBlock]};
+      }
+    });
+    // Clean up removed relief assignments
+    editBlocks.forEach(b=>{
+      if(!b.relief?.staffId) return;
+      // If relief was cleared or block was removed, scrub old entry
+    });
     setSchedule(ns); setEditCell(null);
   };
   const clearCell = () => { const ns={...schedule}; delete ns[cellKey(editCell.sId,editCell.dayIdx)]; setSchedule(ns); setEditCell(null); };
@@ -671,6 +685,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                                   {blocks.map(b=>{ const c=rc(b.room); return(
                                     <div key={b.id} style={{background:c.bg,border:`1.5px solid ${c.border}`,borderRadius:7,padding:"4px 7px"}}>
                                       <div style={{fontSize:11,fontWeight:800,color:c.text}}>{b.room||<span style={{color:"#94A3B8",fontStyle:"italic"}}>No room</span>}</div>
+                                      {b.reliefNote&&<div style={{fontSize:9.5,fontWeight:700,color:"#92400E",background:"#FEF9C3",borderRadius:4,padding:"1px 5px",marginTop:2}}>{b.reliefNote}</div>}
                                       <div style={{fontSize:10,color:"#64748B",fontWeight:600}}>{b.startTime} – {b.endTime}</div>
                                     </div>
                                   ); })}
@@ -797,22 +812,56 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                       {HOURS_EXCLUDED_ROOMS.has(block.room)&&block.startTime&&block.endTime&&(()=>{
                         const bStart=timeToMins(block.startTime), bEnd=timeToMins(block.endTime);
                         const available=staff.filter(s=>{
-                          if(s.id===editCell?.staffId) return false;
-                          const theirBlocks=getCellData(s.id,editCell?.day)?.blocks||[];
+                          if(s.id===editCell?.sId) return false;
+                          const theirBlocks=getCellData(s.id,editCell?.dayIdx)?.blocks||[];
                           return !theirBlocks.some(tb=>{
                             if(!tb.startTime||!tb.endTime||HOURS_EXCLUDED_ROOMS.has(tb.room)) return false;
                             const ts=timeToMins(tb.startTime),te=timeToMins(tb.endTime);
                             return ts<bEnd&&te>bStart;
                           });
                         });
-                        return available.length>0?(
-                          <div style={{marginTop:8,background:"#FFF9E6",border:"1px solid #FCD34D",borderRadius:9,padding:"8px 11px"}}>
-                            <div style={{fontSize:10.5,fontWeight:800,color:"#92400E",marginBottom:5}}>💡 AVAILABLE FOR RELIEF</div>
-                            <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
-                              {available.map(s=><span key={s.id} style={{background:"white",border:"1px solid #FCD34D",borderRadius:6,padding:"3px 8px",fontSize:11,fontWeight:700,color:"#78350F"}}>{s.name}</span>)}
+                        const relief=block.relief||{staffId:"",startTime:"",endTime:""};
+                        const updateRelief=(f,v)=>updateBlock(block.id,"relief",{...relief,[f]:v});
+                        return (
+                          <div style={{marginTop:8,background:"#FFF9E6",border:"1.5px solid #FCD34D",borderRadius:9,padding:"10px 12px"}}>
+                            <div style={{fontSize:10.5,fontWeight:800,color:"#92400E",marginBottom:8,letterSpacing:"0.4px"}}>🔄 ASSIGN RELIEF COVERAGE</div>
+                            <div style={{marginBottom:8}}>
+                              <label style={{fontSize:10.5,fontWeight:700,color:"#78350F",display:"block",marginBottom:4}}>Relief Staff</label>
+                              <select
+                                value={relief.staffId}
+                                onChange={e=>{
+                                  const sid=e.target.value;
+                                  updateBlock(block.id,"relief",{staffId:sid,startTime:relief.startTime||block.startTime,endTime:relief.endTime||block.endTime});
+                                }}
+                                style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"2px solid #FCD34D",fontSize:13,fontWeight:700,outline:"none",background:"white",fontFamily:"inherit",cursor:"pointer",color:relief.staffId?"#1C1C1C":"#94A3B8"}}
+                              >
+                                <option value="">— Select relief staff —</option>
+                                {available.length===0&&!relief.staffId&&<option disabled value="">No staff available</option>}
+                                {staff.filter(s=>s.id!==editCell?.sId).map(s=>{
+                                  const busy=!available.find(a=>a.id===s.id);
+                                  return <option key={s.id} value={s.id} style={{color:busy?"#9CA3AF":"#1C1C1C"}}>{s.name}{busy?" (busy)":""}</option>;
+                                })}
+                              </select>
                             </div>
+                            {relief.staffId&&(
+                              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                                <div>
+                                  <label style={{fontSize:10.5,fontWeight:700,color:"#78350F",display:"block",marginBottom:4}}>Relief Start</label>
+                                  <select value={relief.startTime||block.startTime} onChange={e=>updateRelief("startTime",e.target.value)} style={{width:"100%",padding:"8px 9px",borderRadius:8,border:"2px solid #FCD34D",fontSize:12,fontWeight:600,outline:"none",background:"white",fontFamily:"inherit",cursor:"pointer",color:"#334155"}}>
+                                    {TIMES.map(t=><option key={t} value={t}>{t}</option>)}
+                                  </select>
+                                </div>
+                                <div>
+                                  <label style={{fontSize:10.5,fontWeight:700,color:"#78350F",display:"block",marginBottom:4}}>Relief End</label>
+                                  <select value={relief.endTime||block.endTime} onChange={e=>updateRelief("endTime",e.target.value)} style={{width:"100%",padding:"8px 9px",borderRadius:8,border:"2px solid #FCD34D",fontSize:12,fontWeight:600,outline:"none",background:"white",fontFamily:"inherit",cursor:"pointer",color:"#334155"}}>
+                                    {TIMES.filter(t=>timeToMins(t)>timeToMins(relief.startTime||block.startTime)).map(t=><option key={t} value={t}>{t}</option>)}
+                                  </select>
+                                </div>
+                              </div>
+                            )}
+                            {relief.staffId&&<div style={{marginTop:7,fontSize:10.5,fontWeight:700,color:"#65520A",background:"#FEF9C3",borderRadius:6,padding:"4px 8px"}}>✅ {staff.find(s=>s.id===relief.staffId)?.name} will be added to their schedule as "Relief"</div>}
                           </div>
-                        ):(<div style={{marginTop:8,background:"#FFF1F2",border:"1px solid #FCA5A5",borderRadius:9,padding:"8px 11px",fontSize:11,fontWeight:700,color:"#991B1B"}}>⚠️ No staff available for relief during this time</div>);
+                        );
                       })()}
                     </div>
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
