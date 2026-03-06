@@ -908,7 +908,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
             <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:20}}>
               {rooms.map(room=>{ const c=COLOR_PALETTE[room.colorIdx%COLOR_PALETTE.length]; return(
                 <div key={room.id} style={{background:c.bg,border:`2px solid ${c.border}`,borderRadius:12,padding:"11px 14px"}}>
-                  <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:(!HOURS_EXCLUDED_ROOMS.has(room.name)&&room.name!=="Kitchen")?8:0}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:(!HOURS_EXCLUDED_ROOMS.has(room.name)&&room.name!=="Kitchen"&&room.name!=="Floater")?8:0}}>
                     <span style={{width:11,height:11,borderRadius:"50%",background:c.dot,flexShrink:0}}/>
                     {editingRoomId===room.id?(
                       <input autoFocus value={editingRoomName} onChange={e=>setEditingRoomName(e.target.value)} onBlur={saveRoomName} onKeyDown={e=>{if(e.key==="Enter")saveRoomName();if(e.key==="Escape")setEditingRoomId(null);}} style={{flex:1,fontSize:14,fontWeight:700,color:c.text,border:`2px solid ${c.border}`,borderRadius:8,padding:"5px 10px",outline:"none",fontFamily:"inherit",background:"white"}}/>
@@ -922,7 +922,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                     </div>
                     <button onClick={()=>setConfirmDelete({type:"room",id:room.id,name:room.name})} style={{background:"none",border:"none",color:"#CBD5E1",cursor:"pointer",fontSize:20,lineHeight:1,padding:"0 2px"}} onMouseEnter={e=>e.currentTarget.style.color="#EF4444"} onMouseLeave={e=>e.currentTarget.style.color="#CBD5E1"}>×</button>
                   </div>
-                  {!HOURS_EXCLUDED_ROOMS.has(room.name)&&room.name!=="Kitchen"&&(
+                  {!HOURS_EXCLUDED_ROOMS.has(room.name)&&room.name!=="Kitchen"&&room.name!=="Floater"&&(
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
                       <div>
                         <div style={{fontSize:10,fontWeight:800,color:"#94A3B8",letterSpacing:"0.5px",marginBottom:4}}>MAX CAPACITY</div>
