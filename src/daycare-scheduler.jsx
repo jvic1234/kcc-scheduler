@@ -38,6 +38,9 @@ const HOSTED_URL = "https://kcc-scheduler.vercel.app"; // e.g. https://schedule.
 // Location accent colors for tabs
 const LOC_COLORS = ["#1E3A8A","#7DC52A","#E8417A","#4BBDE8","#F5A623","#6A1B9A","#00695C","#37474F"];
 
+// Rooms that don't count toward worked hours
+const HOURS_EXCLUDED_ROOMS = new Set(["Lunch / Break", "Vacation"]);
+
 const DEFAULT_ROOMS = () => ([
   { id: Date.now()+1, name:"Infant Room",    colorIdx:0 },
   { id: Date.now()+2, name:"Toddler Room",   colorIdx:1 },
@@ -46,6 +49,8 @@ const DEFAULT_ROOMS = () => ([
   { id: Date.now()+5, name:"Floater",        colorIdx:4 },
   { id: Date.now()+6, name:"Office",         colorIdx:5 },
   { id: Date.now()+7, name:"Lunch / Break",  colorIdx:6 },
+  { id: Date.now()+8, name:"Kitchen",        colorIdx:7 },
+  { id: Date.now()+9, name:"Vacation",       colorIdx:8 },
 ]);
 
 const INITIAL_LOCATIONS = [
@@ -67,6 +72,8 @@ const INITIAL_LOCATIONS = [
       { id:5, name:"Floater",        colorIdx:4 },
       { id:6, name:"Office",         colorIdx:5 },
       { id:7, name:"Lunch / Break",  colorIdx:6 },
+      { id:8, name:"Kitchen",        colorIdx:7 },
+      { id:9, name:"Vacation",       colorIdx:8 },
     ],
     schedule:  {},
     templates: [],
@@ -92,7 +99,7 @@ function timeToMins(t) {
   if(ap==="PM"&&h!==12)h+=12; if(ap==="AM"&&h===12)h=0; return h*60+m;
 }
 function blockMins(b)  { return Math.max(0, timeToMins(b.endTime)-timeToMins(b.startTime)); }
-function dayMins(blks) { return (blks||[]).filter(b=>b.room!=="Lunch / Break").reduce((s,b)=>s+blockMins(b),0); }
+function dayMins(blks) { return (blks||[]).filter(b=>!HOURS_EXCLUDED_ROOMS.has(b.room)).reduce((s,b)=>s+blockMins(b),0); }
 function fmtHours(m)   { if(!m)return"—"; const h=Math.floor(m/60),mn=m%60; return mn?`${h}h ${mn}m`:`${h}h`; }
 function hasOverlap(blocks) {
   const v=blocks.filter(b=>b.room&&b.startTime&&b.endTime);
@@ -175,7 +182,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
   const [emailSent,        setEmailSent]        = useState({});  // {staffId: true}
   const [showManageRooms,  setShowManageRooms]  = useState(false);
   const [attendance, setAttendance] = useState({}); // { "weekIso|dayIndex|roomId": number }
-  const [attendanceExcluded, setAttendanceExcluded] = useState(new Set(["Lunch / Break"])); // room names excluded from attendance
+  const [attendanceExcluded, setAttendanceExcluded] = useState(new Set(["Lunch / Break", "Vacation", "Kitchen"])); // room names excluded from attendance
   const [showAttendance, setShowAttendance] = useState(false);
   const [showTemplates,    setShowTemplates]    = useState(false);
   const [showManageLocs,   setShowManageLocs]   = useState(false);
@@ -787,13 +794,13 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                         <option value="">Select a room…</option>
                         {rooms.map(r=><option key={r.id} value={r.name}>{r.name}</option>)}
                       </select>
-                      {block.room==="Lunch / Break"&&block.startTime&&block.endTime&&(()=>{
+                      {HOURS_EXCLUDED_ROOMS.has(block.room)&&block.startTime&&block.endTime&&(()=>{
                         const bStart=timeToMins(block.startTime), bEnd=timeToMins(block.endTime);
                         const available=staff.filter(s=>{
                           if(s.id===editCell?.staffId) return false;
                           const theirBlocks=getCellData(s.id,editCell?.day)?.blocks||[];
                           return !theirBlocks.some(tb=>{
-                            if(!tb.startTime||!tb.endTime||tb.room==="Lunch / Break") return false;
+                            if(!tb.startTime||!tb.endTime||HOURS_EXCLUDED_ROOMS.has(tb.room)) return false;
                             const ts=timeToMins(tb.startTime),te=timeToMins(tb.endTime);
                             return ts<bEnd&&te>bStart;
                           });
@@ -901,7 +908,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
             <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:20}}>
               {rooms.map(room=>{ const c=COLOR_PALETTE[room.colorIdx%COLOR_PALETTE.length]; return(
                 <div key={room.id} style={{background:c.bg,border:`2px solid ${c.border}`,borderRadius:12,padding:"11px 14px"}}>
-                  <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:room.name!=="Lunch / Break"?8:0}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:(!HOURS_EXCLUDED_ROOMS.has(room.name)&&room.name!=="Kitchen")?8:0}}>
                     <span style={{width:11,height:11,borderRadius:"50%",background:c.dot,flexShrink:0}}/>
                     {editingRoomId===room.id?(
                       <input autoFocus value={editingRoomName} onChange={e=>setEditingRoomName(e.target.value)} onBlur={saveRoomName} onKeyDown={e=>{if(e.key==="Enter")saveRoomName();if(e.key==="Escape")setEditingRoomId(null);}} style={{flex:1,fontSize:14,fontWeight:700,color:c.text,border:`2px solid ${c.border}`,borderRadius:8,padding:"5px 10px",outline:"none",fontFamily:"inherit",background:"white"}}/>
@@ -909,9 +916,13 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                       <span onClick={()=>startEditRoom(room)} style={{flex:1,fontSize:14,fontWeight:700,color:c.text,cursor:"text",borderBottom:`1.5px dashed ${c.border}`,paddingBottom:1}}>{room.name}</span>
                     )}
                     {editingRoomId!==room.id&&<span style={{fontSize:10.5,color:"#94A3B8",fontStyle:"italic"}}>click to rename</span>}
+                    <div style={{display:"flex",gap:2,marginLeft:4}}>
+                      <button onClick={()=>setRooms(r=>{const i=r.findIndex(x=>x.id===room.id);if(i<=0)return r;const a=[...r];[a[i-1],a[i]]=[a[i],a[i-1]];return a;})} disabled={rooms.findIndex(r=>r.id===room.id)===0} style={{background:"#F1F5F9",border:"none",borderRadius:5,width:22,height:22,cursor:"pointer",fontSize:11,color:"#64748B",display:"flex",alignItems:"center",justifyContent:"center",opacity:rooms.findIndex(r=>r.id===room.id)===0?0.3:1}}>▲</button>
+                      <button onClick={()=>setRooms(r=>{const i=r.findIndex(x=>x.id===room.id);if(i>=r.length-1)return r;const a=[...r];[a[i],a[i+1]]=[a[i+1],a[i]];return a;})} disabled={rooms.findIndex(r=>r.id===room.id)===rooms.length-1} style={{background:"#F1F5F9",border:"none",borderRadius:5,width:22,height:22,cursor:"pointer",fontSize:11,color:"#64748B",display:"flex",alignItems:"center",justifyContent:"center",opacity:rooms.findIndex(r=>r.id===room.id)===rooms.length-1?0.3:1}}>▼</button>
+                    </div>
                     <button onClick={()=>setConfirmDelete({type:"room",id:room.id,name:room.name})} style={{background:"none",border:"none",color:"#CBD5E1",cursor:"pointer",fontSize:20,lineHeight:1,padding:"0 2px"}} onMouseEnter={e=>e.currentTarget.style.color="#EF4444"} onMouseLeave={e=>e.currentTarget.style.color="#CBD5E1"}>×</button>
                   </div>
-                  {room.name!=="Lunch / Break"&&(
+                  {!HOURS_EXCLUDED_ROOMS.has(room.name)&&room.name!=="Kitchen"&&(
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
                       <div>
                         <div style={{fontSize:10,fontWeight:800,color:"#94A3B8",letterSpacing:"0.5px",marginBottom:4}}>MAX CAPACITY</div>
@@ -1214,7 +1225,7 @@ function AiAssistant({ loc, staff, rooms, weekLabel, weekIso, DAYS, getCellData,
               const staffSummary = (l.staff||[]).map(s=>{
                 const days = (DAYS||[]).map((d,i)=>{
                   const key=`${w}|${s.id}|${i}`;
-                  const blks=(l.schedule[key]?.blocks||[]).filter(b=>b.room&&b.startTime&&b.endTime&&b.room!=="Lunch / Break");
+                  const blks=(l.schedule[key]?.blocks||[]).filter(b=>b.room&&b.startTime&&b.endTime&&!HOURS_EXCLUDED_ROOMS.has(b.room));
                   return blks.length?`${d}: ${blks.map(b=>`${b.room} ${b.startTime}-${b.endTime}`).join(",")}`:null;
                 }).filter(Boolean);
                 return days.length?`${s.name}: ${days.join(" | ")}`:null;
@@ -1231,7 +1242,7 @@ function AiAssistant({ loc, staff, rooms, weekLabel, weekIso, DAYS, getCellData,
 
   useEffect(()=>{ aiEndRef.current?.scrollIntoView({behavior:"smooth"}); },[aiMessages]);
 
-  const roomDetails = (rooms||[]).filter(r=>r.name!=="Lunch / Break").map(r=>{
+  const roomDetails = (rooms||[]).filter(r=>!HOURS_EXCLUDED_ROOMS.has(r.name)&&r.name!=="Kitchen").map(r=>{
     const parts = [r.name];
     if(r.capacity) parts.push(`capacity: ${r.capacity} children`);
     if(r.ratio) parts.push(`ratio: ${r.ratio}`);
@@ -1266,8 +1277,8 @@ ${(staff||[]).map(s=>{
   const wkMins=staffWeekMins(s.id);
   const days=(DAYS||[]).map((d,i)=>{
     const blks=getCellData(s.id,i)?.blocks||[];
-    const valid=blks.filter(b=>b.room&&b.startTime&&b.endTime&&b.room!=="Lunch / Break");
-    const brk=blks.filter(b=>b.room==="Lunch / Break"&&b.startTime&&b.endTime);
+    const valid=blks.filter(b=>b.room&&b.startTime&&b.endTime&&!HOURS_EXCLUDED_ROOMS.has(b.room));
+    const brk=blks.filter(b=>HOURS_EXCLUDED_ROOMS.has(b.room)&&b.startTime&&b.endTime);
     const dayStr=valid.length?valid.map(b=>b.room+" "+b.startTime+"-"+b.endTime).join(", "):null;
     const brkStr=brk.length?" [break "+brk.map(b=>b.startTime+"-"+b.endTime).join(",")+"]":"";
     return dayStr?d+": "+dayStr+brkStr:null;
