@@ -447,7 +447,25 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
 
     setSchedule(ns); setEditCell(null);
   };
-  const clearCell = () => { const ns={...schedule}; delete ns[cellKey(editCell.sId,editCell.dayIdx)]; setSchedule(ns); setEditCell(null); };
+  const clearCell = () => {
+    const ns={...schedule};
+    const clearingBlocks=getCellData(editCell.sId,editCell.dayIdx)?.blocks||[];
+
+    // If any of these blocks are relief assignments, remove them from the source staff's reliefs
+    clearingBlocks.forEach(b=>{
+      if(!b.reliefFor||!b.reliefBlockId)return;
+      Object.keys(ns).forEach(k=>{
+        if(!ns[k]?.blocks)return;
+        ns[k]={...ns[k],blocks:ns[k].blocks.map(srcBlock=>{
+          if(!(srcBlock.reliefs||[]).some(r=>r.id===b.reliefBlockId))return srcBlock;
+          return {...srcBlock,reliefs:srcBlock.reliefs.filter(r=>r.id!==b.reliefBlockId)};
+        })};
+      });
+    });
+
+    delete ns[cellKey(editCell.sId,editCell.dayIdx)];
+    setSchedule(ns); setEditCell(null);
+  };
   const updateBlock       = (id,f,v)  => setEditBlocks(editBlocks.map(b=>b.id===id?{...b,[f]:v}:b));
   const updateBlockFields = (id,flds) => setEditBlocks(editBlocks.map(b=>b.id===id?{...b,...flds}:b));
   const removeBlock = id => setEditBlocks(editBlocks.filter(b=>b.id!==id));
@@ -730,13 +748,13 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
 
       {/* ── SCHEDULE TABLE ── */}
       <div style={{padding:"20px 28px",overflowX:"auto"}}>
-        <div style={{background:"white",borderRadius:18,boxShadow:"0 2px 20px rgba(0,0,0,0.07)",overflow:"hidden",minWidth:750}}>
+        <div style={{background:"white",borderRadius:18,boxShadow:"0 2px 20px rgba(0,0,0,0.07)",overflow:"hidden",minWidth:680}}>
           <table style={{width:"100%",borderCollapse:"collapse"}}>
             <thead>
               <tr>
-                <th style={{background:"#1E3A8A",padding:"15px 20px",textAlign:"left",color:"white",fontSize:12,fontWeight:800,letterSpacing:"0.5px",width:180,borderRight:"1px solid rgba(255,255,255,0.1)"}}>STAFF MEMBER</th>
+                <th style={{background:"#1E3A8A",padding:"15px 12px",textAlign:"left",color:"white",fontSize:12,fontWeight:800,letterSpacing:"0.5px",width:150,borderRight:"1px solid rgba(255,255,255,0.1)"}}>STAFF MEMBER</th>
                 {weekDates.map((date,i)=>{ const isToday=date.toDateString()===new Date().toDateString(); return(
-                  <th key={i} style={{background:isToday?"#16307a":"#1E3A8A",padding:"15px 10px",textAlign:"center",color:"white",fontSize:12,fontWeight:800,minWidth:90,borderRight:i<6?"1px solid rgba(255,255,255,0.08)":"none",position:"relative"}}>
+                  <th key={i} style={{background:isToday?"#16307a":"#1E3A8A",padding:"15px 6px",textAlign:"center",color:"white",fontSize:12,fontWeight:800,minWidth:80,borderRight:i<6?"1px solid rgba(255,255,255,0.08)":"none",position:"relative"}}>
                     {isToday&&<div style={{position:"absolute",top:6,right:8,background:"#95D5B2",color:"#1B4332",fontSize:9,fontWeight:900,padding:"1px 6px",borderRadius:8}}>TODAY</div>}
                     <div style={{fontSize:13,fontWeight:900}}>{DAY_SHORT[i]}</div>
                     <div style={{fontSize:11,opacity:0.72,marginTop:2,fontWeight:500}}>{formatDate(date)}</div>
@@ -938,7 +956,18 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                     </div>
                     <div style={{marginBottom:10}}>
                       <label style={{fontSize:10.5,fontWeight:800,color:"#6B7280",display:"block",marginBottom:5,letterSpacing:"0.5px"}}>ROOM / ASSIGNMENT</label>
-                      <select value={block.room} onChange={e=>updateBlock(block.id,"room",e.target.value)} style={{width:"100%",padding:"9px 11px",borderRadius:9,border:`2px solid ${c.border}`,fontSize:13,fontWeight:700,outline:"none",background:"white",color:block.room?c.text:"#94A3B8",fontFamily:"inherit",cursor:"pointer"}}>
+                      <select value={block.room} onChange={e=>{
+                        const newRoom=e.target.value;
+                        const flds={room:newRoom};
+                        if(newRoom&&block.startTime){
+                          const startMins=timeToMins(block.startTime);
+                          const offsetMins=HOURS_EXCLUDED_ROOMS.has(newRoom)?60:240; // 1hr for break, 4hr for rooms
+                          const targetMins=startMins+offsetMins;
+                          const autoEnd=TIMES.find(t=>timeToMins(t)===targetMins);
+                          if(autoEnd)flds.endTime=autoEnd;
+                        }
+                        updateBlockFields(block.id,flds);
+                      }} style={{width:"100%",padding:"9px 11px",borderRadius:9,border:`2px solid ${c.border}`,fontSize:13,fontWeight:700,outline:"none",background:"white",color:block.room?c.text:"#94A3B8",fontFamily:"inherit",cursor:"pointer"}}>
                         <option value="">Select a room…</option>
                         {rooms.map(r=><option key={r.id} value={r.name}>{r.name}</option>)}
                       </select>
@@ -990,13 +1019,13 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                                   <div>
                                     <label style={{fontSize:10,fontWeight:700,color:"#78350F",display:"block",marginBottom:3}}>Start</label>
                                     <select value={r.startTime||block.startTime} onChange={e=>updateOneRelief(r.id,"startTime",e.target.value)} style={{width:"100%",padding:"7px 8px",borderRadius:7,border:"2px solid #FCD34D",fontSize:12,fontWeight:600,outline:"none",background:"white",fontFamily:"inherit",cursor:"pointer",color:"#334155"}}>
-                                      {TIMES.map(t=><option key={t} value={t}>{t}</option>)}
+                                      {TIMES.filter(t=>timeToMins(t)>=timeToMins(block.startTime)&&timeToMins(t)<timeToMins(block.endTime)).map(t=><option key={t} value={t}>{t}</option>)}
                                     </select>
                                   </div>
                                   <div>
                                     <label style={{fontSize:10,fontWeight:700,color:"#78350F",display:"block",marginBottom:3}}>End</label>
                                     <select value={r.endTime||block.endTime} onChange={e=>updateOneRelief(r.id,"endTime",e.target.value)} style={{width:"100%",padding:"7px 8px",borderRadius:7,border:"2px solid #FCD34D",fontSize:12,fontWeight:600,outline:"none",background:"white",fontFamily:"inherit",cursor:"pointer",color:"#334155"}}>
-                                      {TIMES.filter(t=>timeToMins(t)>timeToMins(r.startTime||block.startTime)).map(t=><option key={t} value={t}>{t}</option>)}
+                                      {TIMES.filter(t=>timeToMins(t)>timeToMins(r.startTime||block.startTime)&&timeToMins(t)<=timeToMins(block.endTime)).map(t=><option key={t} value={t}>{t}</option>)}
                                     </select>
                                   </div>
                                 </div>
