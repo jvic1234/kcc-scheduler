@@ -963,15 +963,6 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                           if(se>bStart&&se<=bEnd)return Math.max(max,se);
                           return max;
                         },bStart);
-                        const available=staff.filter(s=>{
-                          if(String(s.id)===String(editCell?.sId)) return false;
-                          const theirBlocks=getCellData(s.id,editCell?.dayIdx)?.blocks||[];
-                          return !theirBlocks.some(tb=>{
-                            if(!tb.startTime||!tb.endTime||HOURS_EXCLUDED_ROOMS.has(tb.room)) return false;
-                            const ts=timeToMins(tb.startTime),te=timeToMins(tb.endTime);
-                            return ts<bEnd&&te>effectiveBreakStart;
-                          });
-                        });
                         const reliefs=block.reliefs||[];
                         const updateReliefs=newReliefs=>updateBlock(block.id,"reliefs",newReliefs);
                         const updateOneRelief=(rid,f,v)=>updateReliefs(reliefs.map(r=>r.id===rid?{...r,[f]:v}:r));
@@ -999,11 +990,23 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                                     style={{width:"100%",padding:"7px 9px",borderRadius:7,border:"2px solid #FCD34D",fontSize:12.5,fontWeight:700,outline:"none",background:"white",fontFamily:"inherit",cursor:"pointer",color:r.staffId?"#1C1C1C":"#94A3B8"}}
                                   >
                                     <option value="">— Select staff —</option>
-                                    {staff.filter(s=>String(s.id)!==String(editCell?.sId)).map(s=>{
-                                      const busy=!available.find(a=>String(a.id)===String(s.id));
+                                    {staff.filter(s=>{
+                                      if(String(s.id)===String(editCell?.sId))return false;
                                       const alreadyPicked=reliefs.some(rv=>rv.id!==r.id&&String(rv.staffId)===String(s.id));
-                                      return <option key={s.id} value={s.id} style={{color:(busy||alreadyPicked)?"#9CA3AF":"#1C1C1C"}}>{s.name}{busy?" (busy)":""}{alreadyPicked?" (already assigned)":""}</option>;
-                                    })}
+                                      if(alreadyPicked)return false;
+                                      // Check against the specific relief time window, not the whole break
+                                      const reliefStart=timeToMins(r.startTime||effectiveBreakStartTime);
+                                      const reliefEnd=timeToMins(r.endTime||block.endTime);
+                                      const theirBlocks=getCellData(s.id,editCell?.dayIdx)?.blocks||[];
+                                      const isBusy=theirBlocks.some(tb=>{
+                                        if(!tb.startTime||!tb.endTime||HOURS_EXCLUDED_ROOMS.has(tb.room))return false;
+                                        const ts=timeToMins(tb.startTime),te=timeToMins(tb.endTime);
+                                        return ts<reliefEnd&&te>reliefStart;
+                                      });
+                                      return !isBusy;
+                                    }).map(s=>(
+                                      <option key={s.id} value={s.id}>{s.name}</option>
+                                    ))}
                                   </select>
                                 </div>
                                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>
