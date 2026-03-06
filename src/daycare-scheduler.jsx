@@ -818,7 +818,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                                             const rName=rMember?.name||"Unknown";
                                             const rBlocks=rMember?getCellData(rMember.id,dayIdx)?.blocks||[]:[];
                                             const rStart=timeToMins(r.startTime);
-                                            const currentRoom=rBlocks.find(rb=>rb.room&&rb.room!=="Relief"&&!HOURS_EXCLUDED_ROOMS.has(rb.room)&&timeToMins(rb.startTime)<=rStart&&timeToMins(rb.endTime)>rStart);
+                                            const currentRoom=rBlocks.find(rb=>rb.room&&!rb.reliefFor&&rb.room!=="Relief"&&!HOURS_EXCLUDED_ROOMS.has(rb.room)&&timeToMins(rb.startTime)<=rStart&&timeToMins(rb.endTime)>rStart);
                                             return(
                                               <div key={r.id} style={{background:"#FEF9C3",border:"1px solid #FCD34D",borderRadius:4,padding:"2px 5px",display:"flex",flexWrap:"wrap",alignItems:"center",gap:4}}>
                                                 <span style={{fontSize:9,fontWeight:900,color:"#92400E"}}>→</span>
@@ -1046,7 +1046,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                                   const rStart=timeToMins(r.startTime);
                                   const rMember=staff.find(s=>String(s.id)===String(r.staffId));
                                   const theirBlocks=rMember?getCellData(rMember.id,editCell?.dayIdx)?.blocks||[]:[];
-                                  const inRoom=theirBlocks.find(tb=>tb.room&&!HOURS_EXCLUDED_ROOMS.has(tb.room)&&tb.room!=="Relief"&&timeToMins(tb.startTime)<=rStart&&timeToMins(tb.endTime)>rStart);
+                                  const inRoom=theirBlocks.find(tb=>tb.room&&!tb.reliefFor&&!HOURS_EXCLUDED_ROOMS.has(tb.room)&&tb.room!=="Relief"&&timeToMins(tb.startTime)<=rStart&&timeToMins(tb.endTime)>rStart);
                                   return inRoom?(
                                     <div style={{marginTop:4,background:"#ECFDF5",border:"1px solid #6EE7B7",borderRadius:5,padding:"3px 8px",fontSize:10,fontWeight:700,color:"#065F46"}}>
                                       📍 Currently in: <strong>{inRoom.room}</strong> ({inRoom.startTime}–{inRoom.endTime}) — they will cover from there
