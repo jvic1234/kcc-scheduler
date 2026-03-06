@@ -189,10 +189,8 @@ function AuthScreen() {
 // ─── Authenticated shell ──────────────────────────────────────────────────────
 function SchedulerShell() {
   const { session, signOut } = useAuth();
-  const [onlineUsers, setOnlineUsers] = useState([]);
-  const [remoteData, setRemoteData]   = useState(null);
+  const [remoteData, setRemoteData] = useState(null);
   const realtimeRef = useRef(null);
-  const presenceRef = useRef(null);
 
   // Install shim SYNCHRONOUSLY during render — before scheduler's useEffect fires
   const shimInstalledRef = useRef(false);
@@ -202,50 +200,19 @@ function SchedulerShell() {
   }
 
   useEffect(() => {
-    // Subscribe to live schedule changes from other users
     realtimeRef.current = subscribeToRealtimeChanges((data) => {
       setRemoteData(data);
     });
-
-    // Presence — show who's online
-    const shortName = session.user.email.split("@")[0];
-    presenceRef.current = supabase
-      .channel("kcc-presence")
-      .on("presence", { event: "sync" }, () => {
-        const state = presenceRef.current.presenceState();
-        const users = Object.values(state).flat().map(u => u.name).filter(Boolean);
-        setOnlineUsers([...new Set(users)]);
-      })
-      .subscribe(async (status) => {
-        if (status === "SUBSCRIBED") {
-          await presenceRef.current.track({ name: shortName });
-        }
-      });
-
-    return () => {
-      realtimeRef.current?.unsubscribe();
-      presenceRef.current?.unsubscribe();
-    };
+    return () => { realtimeRef.current?.unsubscribe(); };
   }, []);
 
   return (
-    <>
-      {onlineUsers.length > 1 && (
-        <div style={{ background:"#1B4332", padding:"6px 20px", display:"flex", alignItems:"center", gap:10, fontSize:12, fontFamily:"'Nunito',sans-serif" }}>
-          <span style={{ color:"#95D5B2", fontWeight:800 }}>🟢 Live:</span>
-          {onlineUsers.map((u,i) => (
-            <span key={i} style={{ background:"rgba(255,255,255,0.15)", color:"white", padding:"2px 10px", borderRadius:20, fontWeight:700 }}>{u}</span>
-          ))}
-          <span style={{ color:"rgba(255,255,255,0.5)", fontSize:11 }}>· Changes sync automatically</span>
-        </div>
-      )}
-      <KidsConnectionScheduler
-        userEmail={session.user.email}
-        onSignOut={signOut}
-        remoteData={remoteData}
-        onRemoteDataConsumed={() => setRemoteData(null)}
-      />
-    </>
+    <KidsConnectionScheduler
+      userEmail={session.user.email}
+      onSignOut={signOut}
+      remoteData={remoteData}
+      onRemoteDataConsumed={() => setRemoteData(null)}
+    />
   );
 }
 
