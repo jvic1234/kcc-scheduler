@@ -1,37 +1,5 @@
 import { useState, useEffect, useRef } from "react";
 
-// ─── Supabase (production persistence) ───────────────────────────────────────
-// Reads env vars injected by Vite on Vercel. Silently skipped in Claude preview.
-const SUPA_URL = typeof import.meta !== "undefined" ? import.meta?.env?.VITE_SUPABASE_URL : undefined;
-const SUPA_KEY = typeof import.meta !== "undefined" ? import.meta?.env?.VITE_SUPABASE_ANON_KEY : undefined;
-
-// Lazy-init the client once on first use
-let _sb = null;
-async function getSB() {
-  if (_sb) return _sb;
-  if (!SUPA_URL || !SUPA_KEY) return null;
-  try {
-    const mod = await import("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm");
-    _sb = mod.createClient(SUPA_URL, SUPA_KEY);
-    return _sb;
-  } catch(e) { return null; }
-}
-async function dbLoad() {
-  const sb = await getSB(); if (!sb) return null;
-  try {
-    const { data, error } = await sb.from("schedule").select("data").limit(1).single();
-    if (error || !data?.data) return null;
-    return data.data;
-  } catch(e) { return null; }
-}
-async function dbSave(payload) {
-  const sb = await getSB(); if (!sb) return false;
-  try {
-    const { error } = await sb.from("schedule").update({ data: payload, updated_at: new Date().toISOString() }).neq("id","00000000-0000-0000-0000-000000000000");
-    return !error;
-  } catch(e) { return false; }
-}
-
 // ─── Constants ────────────────────────────────────────────────────────────────
 const DAYS      = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
 const DAY_SHORT = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
@@ -287,12 +255,6 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
   useEffect(()=>{
     (async()=>{
       try {
-        // 1. Try Supabase first (production on Vercel)
-        const d = await dbLoad();
-        if(d){ if(d.locations)setLocations(d.locations); if(d.activeLocId)setActiveLocId(d.activeLocId); if(d.attendance)setAttendance(d.attendance); setLoaded(true); return; }
-      } catch(e){}
-      try {
-        // 2. Fall back to window.storage (Claude preview)
         const r=await window.storage.get("kcc-v1");
         if(r){ const d=JSON.parse(r.value); if(d.locations)setLocations(d.locations); if(d.activeLocId)setActiveLocId(d.activeLocId); if(d.attendance)setAttendance(d.attendance); }
       } catch(e){}
@@ -304,11 +266,8 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
     if(!loaded)return;
     setSaveStatus("saving");
     const t=setTimeout(async()=>{
-      const payload={locations,activeLocId,attendance};
-      let saved=false;
-      try{ await dbSave(payload); saved=true; }catch(e){}
-      try{ await window.storage.set("kcc-v1",JSON.stringify(payload)); saved=true; }catch(e){}
-      if(saved){ setSaveStatus("saved"); setTimeout(()=>setSaveStatus(""),2200); } else { setSaveStatus(""); }
+      try{ await window.storage.set("kcc-v1",JSON.stringify({locations,activeLocId,attendance})); setSaveStatus("saved"); setTimeout(()=>setSaveStatus(""),2200); }
+      catch(e){ setSaveStatus(""); }
     },700);
     return()=>clearTimeout(t);
   },[locations,activeLocId,attendance,loaded]);
