@@ -955,22 +955,31 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                       </select>
                       {HOURS_EXCLUDED_ROOMS.has(block.room)&&block.startTime&&block.endTime&&(()=>{
                         const bStart=timeToMins(block.startTime), bEnd=timeToMins(block.endTime);
+                        // Relief can't start before Sarah finishes any overlapping work block
+                        // e.g. if Pre-K ends at 12:30 but Lunch starts at 12:00, earliest relief is 12:30
+                        const effectiveBreakStart=editBlocks.filter(b=>b.id!==block.id&&b.room&&!HOURS_EXCLUDED_ROOMS.has(b.room)&&b.startTime&&b.endTime).reduce((max,sb)=>{
+                          const se=timeToMins(sb.endTime);
+                          // If this work block ends within the break window, it pushes the earliest relief start
+                          if(se>bStart&&se<=bEnd)return Math.max(max,se);
+                          return max;
+                        },bStart);
                         const available=staff.filter(s=>{
                           if(String(s.id)===String(editCell?.sId)) return false;
                           const theirBlocks=getCellData(s.id,editCell?.dayIdx)?.blocks||[];
                           return !theirBlocks.some(tb=>{
                             if(!tb.startTime||!tb.endTime||HOURS_EXCLUDED_ROOMS.has(tb.room)) return false;
                             const ts=timeToMins(tb.startTime),te=timeToMins(tb.endTime);
-                            return ts<bEnd&&te>bStart;
+                            return ts<bEnd&&te>effectiveBreakStart;
                           });
                         });
                         const reliefs=block.reliefs||[];
                         const updateReliefs=newReliefs=>updateBlock(block.id,"reliefs",newReliefs);
                         const updateOneRelief=(rid,f,v)=>updateReliefs(reliefs.map(r=>r.id===rid?{...r,[f]:v}:r));
                         const removeRelief=rid=>updateReliefs(reliefs.filter(r=>r.id!==rid));
+                        const effectiveBreakStartTime=TIMES.find(t=>timeToMins(t)===effectiveBreakStart)||block.startTime;
                         const addRelief=()=>{
                           const last=reliefs[reliefs.length-1];
-                          const s=last?.endTime||block.startTime;
+                          const s=last?.endTime||effectiveBreakStartTime;
                           updateReliefs([...reliefs,newRelief(s,block.endTime)]);
                         };
                         return (
@@ -1000,14 +1009,14 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>
                                   <div>
                                     <label style={{fontSize:10,fontWeight:700,color:"#78350F",display:"block",marginBottom:3}}>Start</label>
-                                    <select value={r.startTime||block.startTime} onChange={e=>updateOneRelief(r.id,"startTime",e.target.value)} style={{width:"100%",padding:"7px 8px",borderRadius:7,border:"2px solid #FCD34D",fontSize:12,fontWeight:600,outline:"none",background:"white",fontFamily:"inherit",cursor:"pointer",color:"#334155"}}>
-                                      {TIMES.filter(t=>timeToMins(t)>=timeToMins(block.startTime)&&timeToMins(t)<timeToMins(block.endTime)).map(t=><option key={t} value={t}>{t}</option>)}
+                                    <select value={r.startTime||effectiveBreakStartTime} onChange={e=>updateOneRelief(r.id,"startTime",e.target.value)} style={{width:"100%",padding:"7px 8px",borderRadius:7,border:"2px solid #FCD34D",fontSize:12,fontWeight:600,outline:"none",background:"white",fontFamily:"inherit",cursor:"pointer",color:"#334155"}}>
+                                      {TIMES.filter(t=>timeToMins(t)>=effectiveBreakStart&&timeToMins(t)<bEnd).map(t=><option key={t} value={t}>{t}</option>)}
                                     </select>
                                   </div>
                                   <div>
                                     <label style={{fontSize:10,fontWeight:700,color:"#78350F",display:"block",marginBottom:3}}>End</label>
                                     <select value={r.endTime||block.endTime} onChange={e=>updateOneRelief(r.id,"endTime",e.target.value)} style={{width:"100%",padding:"7px 8px",borderRadius:7,border:"2px solid #FCD34D",fontSize:12,fontWeight:600,outline:"none",background:"white",fontFamily:"inherit",cursor:"pointer",color:"#334155"}}>
-                                      {TIMES.filter(t=>timeToMins(t)>timeToMins(r.startTime||block.startTime)&&timeToMins(t)<=timeToMins(block.endTime)).map(t=><option key={t} value={t}>{t}</option>)}
+                                      {TIMES.filter(t=>timeToMins(t)>timeToMins(r.startTime||effectiveBreakStartTime)&&timeToMins(t)<=bEnd).map(t=><option key={t} value={t}>{t}</option>)}
                                     </select>
                                   </div>
                                 </div>
