@@ -173,6 +173,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
   // ── UI state ───────────────────────────────────────────────────────────────
   const [editCell,         setEditCell]         = useState(null);
   const [editBlocks,       setEditBlocks]       = useState([]);
+  const [editOrigBlocks,   setEditOrigBlocks]   = useState([]); // snapshot at open time for deletion detection
   const [clipboard,        setClipboard]        = useState(null);
   const [toast,            setToast]            = useState("");
   const [saveStatus,       setSaveStatus]       = useState("");
@@ -359,12 +360,13 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
   // ── Cell editing ───────────────────────────────────────────────────────────
   const openEdit = (sId,dayIdx) => {
     const ex=getCellData(sId,dayIdx);
-    setEditBlocks(ex?.blocks?.length?ex.blocks.map(b=>{
-      // migrate old single-relief format to array
+    const loaded=ex?.blocks?.length?ex.blocks.map(b=>{
       let reliefs=b.reliefs||[];
       if(!reliefs.length&&b.relief?.staffId) reliefs=[{id:Date.now()+Math.random(),...b.relief}];
       return {...b,reliefs};
-    }):[newBlock()]);
+    }):[newBlock()];
+    setEditBlocks(loaded);
+    setEditOrigBlocks(loaded); // snapshot for deletion detection
     setEditCell({sId,dayIdx});
   };
   const saveEdit = () => {
@@ -373,21 +375,27 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
     if(valid.length===0)delete ns[key]; else ns[key]={blocks:valid};
 
     // ── If this is a relief staff's own edit, sync changes back to source staff ──
-    editBlocks.forEach(b=>{
-      if(b.reliefFor&&b.reliefBlockId){
-        // Find the source staff's cell and update or remove the matching relief entry
-        Object.keys(ns).forEach(k=>{
-          if(!ns[k]?.blocks)return;
-          ns[k]={...ns[k],blocks:ns[k].blocks.map(srcBlock=>{
-            if(!(srcBlock.reliefs||[]).some(r=>r.id===b.reliefBlockId))return srcBlock;
-            const stillPresent=valid.some(vb=>vb.id===b.id);
-            const updatedReliefs=stillPresent
-              ?srcBlock.reliefs.map(r=>r.id===b.reliefBlockId?{...r,startTime:b.startTime,endTime:b.endTime,staffId:b.reliefFor?undefined:r.staffId}:r)
-              :srcBlock.reliefs.filter(r=>r.id!==b.reliefBlockId);
-            return {...srcBlock,reliefs:updatedReliefs};
-          })};
-        });
-      }
+    // Use original snapshot to catch blocks that were deleted (not in editBlocks anymore)
+    editOrigBlocks.forEach(origB=>{
+      if(!origB.reliefFor||!origB.reliefBlockId)return;
+      const stillPresent=valid.some(vb=>vb.id===origB.id);
+      // Find the source block in ns that owns this relief entry
+      Object.keys(ns).forEach(k=>{
+        if(!ns[k]?.blocks)return;
+        ns[k]={...ns[k],blocks:ns[k].blocks.map(srcBlock=>{
+          if(!(srcBlock.reliefs||[]).some(r=>r.id===origB.reliefBlockId))return srcBlock;
+          if(stillPresent){
+            // Update times if the block still exists
+            const updatedB=valid.find(vb=>vb.id===origB.id);
+            return {...srcBlock,reliefs:srcBlock.reliefs.map(r=>
+              r.id===origB.reliefBlockId?{...r,startTime:updatedB.startTime,endTime:updatedB.endTime}:r
+            )};
+          } else {
+            // Block was deleted — remove from source's reliefs
+            return {...srcBlock,reliefs:srcBlock.reliefs.filter(r=>r.id!==origB.reliefBlockId)};
+          }
+        })};
+      });
     });
 
     // ── Write/update relief blocks into relief staff schedules ──
@@ -722,13 +730,13 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
 
       {/* ── SCHEDULE TABLE ── */}
       <div style={{padding:"20px 28px",overflowX:"auto"}}>
-        <div style={{background:"white",borderRadius:18,boxShadow:"0 2px 20px rgba(0,0,0,0.07)",overflow:"hidden",minWidth:920}}>
+        <div style={{background:"white",borderRadius:18,boxShadow:"0 2px 20px rgba(0,0,0,0.07)",overflow:"hidden",minWidth:750}}>
           <table style={{width:"100%",borderCollapse:"collapse"}}>
             <thead>
               <tr>
                 <th style={{background:"#1E3A8A",padding:"15px 20px",textAlign:"left",color:"white",fontSize:12,fontWeight:800,letterSpacing:"0.5px",width:180,borderRight:"1px solid rgba(255,255,255,0.1)"}}>STAFF MEMBER</th>
                 {weekDates.map((date,i)=>{ const isToday=date.toDateString()===new Date().toDateString(); return(
-                  <th key={i} style={{background:isToday?"#16307a":"#1E3A8A",padding:"15px 10px",textAlign:"center",color:"white",fontSize:12,fontWeight:800,minWidth:125,borderRight:i<6?"1px solid rgba(255,255,255,0.08)":"none",position:"relative"}}>
+                  <th key={i} style={{background:isToday?"#16307a":"#1E3A8A",padding:"15px 10px",textAlign:"center",color:"white",fontSize:12,fontWeight:800,minWidth:90,borderRight:i<6?"1px solid rgba(255,255,255,0.08)":"none",position:"relative"}}>
                     {isToday&&<div style={{position:"absolute",top:6,right:8,background:"#95D5B2",color:"#1B4332",fontSize:9,fontWeight:900,padding:"1px 6px",borderRadius:8}}>TODAY</div>}
                     <div style={{fontSize:13,fontWeight:900}}>{DAY_SHORT[i]}</div>
                     <div style={{fontSize:11,opacity:0.72,marginTop:2,fontWeight:500}}>{formatDate(date)}</div>
