@@ -364,7 +364,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
         prevReliefKeys.delete(`${r.staffId}:${r.id}`); // still present
         const rKey=cellKey(r.staffId,editCell.dayIdx);
         const existing=(ns[rKey]?.blocks||[]).filter(rb=>rb.reliefBlockId!==r.id);
-        const srcName=staff.find(s=>s.id===editCell.sId)?.name||"";
+        const srcName=staff.find(s=>String(s.id)===String(editCell.sId))?.name||"";
         const reliefBlock={
           ...newBlock(r.startTime,r.endTime,"Relief"),
           reliefFor:editCell.sId,
@@ -739,17 +739,22 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                                       {reliefCoverage.length>0&&(
                                         <div style={{marginTop:4,display:"flex",flexDirection:"column",gap:2}}>
                                           {reliefCoverage.map(r=>{
-                                            const rName=staff.find(st=>st.id===r.staffId)?.name||"?";
-                                            // Find what room relief staff is in during their relief time
-                                            const rBlocks=getCellData(r.staffId,dayIdx)?.blocks||[];
+                                            const rSid=String(r.staffId);
+                                            const rName=staff.find(st=>String(st.id)===rSid)?.name||"Unknown";
+                                            // Find what room the relief staff is in at the start of their relief slot
+                                            const rMember=staff.find(st=>String(st.id)===rSid);
+                                            const rBlocks=rMember?getCellData(rMember.id,dayIdx)?.blocks||[]:[];
                                             const rStart=timeToMins(r.startTime);
                                             const currentRoom=rBlocks.find(rb=>rb.room&&rb.room!=="Relief"&&!HOURS_EXCLUDED_ROOMS.has(rb.room)&&timeToMins(rb.startTime)<=rStart&&timeToMins(rb.endTime)>rStart);
                                             return(
-                                              <div key={r.id} style={{background:"#FEF9C3",border:"1px solid #FCD34D",borderRadius:4,padding:"2px 5px",display:"flex",alignItems:"center",gap:4}}>
+                                              <div key={r.id} style={{background:"#FEF9C3",border:"1px solid #FCD34D",borderRadius:4,padding:"2px 5px",display:"flex",flexWrap:"wrap",alignItems:"center",gap:4}}>
                                                 <span style={{fontSize:9,fontWeight:900,color:"#92400E"}}>→</span>
                                                 <span style={{fontSize:9.5,fontWeight:800,color:"#78350F"}}>{rName}</span>
                                                 <span style={{fontSize:9,fontWeight:600,color:"#92400E",opacity:0.8}}>{r.startTime}–{r.endTime}</span>
-                                                {currentRoom&&<span style={{fontSize:9,fontWeight:700,color:"#1B4332",background:"#D1FAE5",borderRadius:3,padding:"0 4px",marginLeft:2}}>from {currentRoom.room}</span>}
+                                                {currentRoom
+                                                  ?<span style={{fontSize:9,fontWeight:700,color:"#1B4332",background:"#D1FAE5",borderRadius:3,padding:"0 4px"}}>📍 from {currentRoom.room}</span>
+                                                  :<span style={{fontSize:9,fontWeight:600,color:"#6B7280",fontStyle:"italic"}}>no active room</span>
+                                                }
                                               </div>
                                             );
                                           })}
@@ -881,7 +886,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                       {HOURS_EXCLUDED_ROOMS.has(block.room)&&block.startTime&&block.endTime&&(()=>{
                         const bStart=timeToMins(block.startTime), bEnd=timeToMins(block.endTime);
                         const available=staff.filter(s=>{
-                          if(s.id===editCell?.sId) return false;
+                          if(String(s.id)===String(editCell?.sId)) return false;
                           const theirBlocks=getCellData(s.id,editCell?.dayIdx)?.blocks||[];
                           return !theirBlocks.some(tb=>{
                             if(!tb.startTime||!tb.endTime||HOURS_EXCLUDED_ROOMS.has(tb.room)) return false;
@@ -915,9 +920,9 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                                     style={{width:"100%",padding:"7px 9px",borderRadius:7,border:"2px solid #FCD34D",fontSize:12.5,fontWeight:700,outline:"none",background:"white",fontFamily:"inherit",cursor:"pointer",color:r.staffId?"#1C1C1C":"#94A3B8"}}
                                   >
                                     <option value="">— Select staff —</option>
-                                    {staff.filter(s=>s.id!==editCell?.sId).map(s=>{
-                                      const busy=!available.find(a=>a.id===s.id);
-                                      const alreadyPicked=reliefs.some(rv=>rv.id!==r.id&&rv.staffId===s.id);
+                                    {staff.filter(s=>String(s.id)!==String(editCell?.sId)).map(s=>{
+                                      const busy=!available.find(a=>String(a.id)===String(s.id));
+                                      const alreadyPicked=reliefs.some(rv=>rv.id!==r.id&&String(rv.staffId)===String(s.id));
                                       return <option key={s.id} value={s.id} style={{color:(busy||alreadyPicked)?"#9CA3AF":"#1C1C1C"}}>{s.name}{busy?" (busy)":""}{alreadyPicked?" (already assigned)":""}</option>;
                                     })}
                                   </select>
@@ -936,16 +941,17 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                                     </select>
                                   </div>
                                 </div>
-                                {r.staffId&&<div style={{marginTop:6,fontSize:10,fontWeight:700,color:"#65520A",background:"#FEF9C3",borderRadius:5,padding:"3px 7px"}}>✅ {staff.find(s=>s.id===r.staffId)?.name} → added to their schedule</div>}
+                                {r.staffId&&<div style={{marginTop:6,fontSize:10,fontWeight:700,color:"#65520A",background:"#FEF9C3",borderRadius:5,padding:"3px 7px"}}>✅ {staff.find(s=>String(s.id)===String(r.staffId))?.name} → added to their schedule</div>}
                                 {r.staffId&&r.startTime&&(()=>{
                                   const rStart=timeToMins(r.startTime);
-                                  const theirBlocks=getCellData(r.staffId,editCell?.dayIdx)?.blocks||[];
+                                  const rMember=staff.find(s=>String(s.id)===String(r.staffId));
+                                  const theirBlocks=rMember?getCellData(rMember.id,editCell?.dayIdx)?.blocks||[]:[];
                                   const inRoom=theirBlocks.find(tb=>tb.room&&!HOURS_EXCLUDED_ROOMS.has(tb.room)&&tb.room!=="Relief"&&timeToMins(tb.startTime)<=rStart&&timeToMins(tb.endTime)>rStart);
                                   return inRoom?(
                                     <div style={{marginTop:4,background:"#ECFDF5",border:"1px solid #6EE7B7",borderRadius:5,padding:"3px 8px",fontSize:10,fontWeight:700,color:"#065F46"}}>
-                                      📍 Currently in: <strong>{inRoom.room}</strong> ({inRoom.startTime}–{inRoom.endTime}) — relief coverage needed there
+                                      📍 Currently in: <strong>{inRoom.room}</strong> ({inRoom.startTime}–{inRoom.endTime}) — they will cover from there
                                     </div>
-                                  ):null;
+                                  ):<div style={{marginTop:4,background:"#F8FAFC",border:"1px solid #E2E8F0",borderRadius:5,padding:"3px 8px",fontSize:10,fontWeight:600,color:"#94A3B8"}}>No active room at this time</div>;
                                 })()}
                               </div>
                             ))}
