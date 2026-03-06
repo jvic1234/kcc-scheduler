@@ -92,7 +92,7 @@ function getWeekStart(date) {
 function formatDate(d)     { return d.toLocaleDateString("en-US",{month:"short",day:"numeric"}); }
 function formatDateLong(d) { return d.toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"}); }
 function getWeekDates(ws)  { return DAYS.map((_,i)=>{ const d=new Date(ws); d.setDate(d.getDate()+i); return d; }); }
-function getAvatarColor(id){ return AVATAR_COLORS[id % AVATAR_COLORS.length]; }
+function getAvatarColor(idx){ return AVATAR_COLORS[idx % AVATAR_COLORS.length]; }
 function initials(name)    { return name.split(" ").map(n=>n[0]).join("").slice(0,2).toUpperCase(); }
 function newBlock(s="8:00 AM",e="4:00 PM",r="") { return { id:Date.now()+Math.random(), startTime:s, endTime:e, room:r, reliefs:[] }; }
 function newRelief(s="",e="") { return { id:Date.now()+Math.random(), staffId:"", startTime:s, endTime:e }; }
@@ -256,7 +256,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
     (async()=>{
       try {
         const r=await window.storage.get("kcc-v1");
-        if(r){ const d=JSON.parse(r.value); if(d.locations)setLocations(d.locations); if(d.activeLocId)setActiveLocId(d.activeLocId); }
+        if(r){ const d=JSON.parse(r.value); if(d.locations)setLocations(d.locations); if(d.activeLocId)setActiveLocId(d.activeLocId); if(d.attendance)setAttendance(d.attendance); }
       } catch(e){}
       setLoaded(true);
     })();
@@ -266,11 +266,11 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
     if(!loaded)return;
     setSaveStatus("saving");
     const t=setTimeout(async()=>{
-      try{ await window.storage.set("kcc-v1",JSON.stringify({locations,activeLocId})); setSaveStatus("saved"); setTimeout(()=>setSaveStatus(""),2200); }
+      try{ await window.storage.set("kcc-v1",JSON.stringify({locations,activeLocId,attendance})); setSaveStatus("saved"); setTimeout(()=>setSaveStatus(""),2200); }
       catch(e){ setSaveStatus(""); }
     },700);
     return()=>clearTimeout(t);
-  },[locations,activeLocId,loaded]);
+  },[locations,activeLocId,attendance,loaded]);
 
   // ── Calendar click-outside ─────────────────────────────────────────────────
   useEffect(()=>{
@@ -293,20 +293,57 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
   const goToNext = () => { const d=new Date(weekStart); d.setDate(d.getDate()+7); setWeekStart(d); };
 
   // ── Quick-fill / Copy ─────────────────────────────────────────────────────
+  // ── Shared helper: write relief blocks for all blocks in a schedule snapshot ──
+  const propagateReliefs = (ns, blocks, sId, dayIdx, targetWiso) => {
+    const srcName=staff.find(s=>String(s.id)===String(sId))?.name||"";
+    blocks.forEach(b=>{
+      (b.reliefs||[]).forEach(r=>{
+        if(!r.staffId||!r.startTime||!r.endTime)return;
+        const rKey=`${targetWiso}|${r.staffId}|${dayIdx}`;
+        const existing=(ns[rKey]?.blocks||[]).filter(rb=>rb.reliefBlockId!==r.id);
+        const rStart=timeToMins(r.startTime);
+        const coveredRoom=blocks.find(sb=>
+          sb.room&&!HOURS_EXCLUDED_ROOMS.has(sb.room)&&sb.room!=="Relief"&&
+          timeToMins(sb.startTime)<=rStart&&timeToMins(sb.endTime)>rStart
+        )?.room||blocks.reduce((prev,sb)=>{
+          if(!sb.room||HOURS_EXCLUDED_ROOMS.has(sb.room)||sb.room==="Relief")return prev;
+          const e=timeToMins(sb.endTime);
+          if(e<=rStart&&(!prev||e>timeToMins(prev.endTime)))return sb;
+          return prev;
+        },null)?.room||"";
+        ns[rKey]={blocks:[...existing,{...newBlock(r.startTime,r.endTime,coveredRoom),reliefFor:sId,reliefBlockId:r.id,reliefNote:`Relief for ${srcName}`,reliefs:[]}]};
+      });
+    });
+  };
+
   const fillFromPrevWeek = () => {
     let filled=0; const ns={...schedule};
     const prevWiso=new Date(weekStart); prevWiso.setDate(prevWiso.getDate()-7);
     staff.forEach(s=>{ for(let d=0;d<7;d++){
       const from=`${prevWiso.toISOString()}|${s.id}|${d}`, to=cellKey(s.id,d);
-      if(schedule[from]&&!schedule[to]){ns[to]={...schedule[from]};filled++;}
+      if(schedule[from]&&!schedule[to]){
+        // Give fresh IDs to reliefs to avoid collisions
+        const newBlocks=(schedule[from].blocks||[]).map(b=>({...b,id:Date.now()+Math.random(),reliefs:(b.reliefs||[]).map(r=>({...r,id:Date.now()+Math.random()}))}));
+        ns[to]={blocks:newBlocks};
+        propagateReliefs(ns,newBlocks,s.id,d,wiso);
+        filled++;
+      }
     }});
     setSchedule(ns); showToast(filled>0?`✅ Filled ${filled} shift${filled>1?"s":""} from last week`:"⚠️ No data found in previous week");
   };
 
   const copyWeekToNext = () => {
     const nw=new Date(weekStart); nw.setDate(nw.getDate()+7);
+    const nwiso=nw.toISOString();
     const ns={...schedule};
-    staff.forEach(s=>{ for(let d=0;d<7;d++){ const from=cellKey(s.id,d); if(schedule[from])ns[`${nw.toISOString()}|${s.id}|${d}`]={...schedule[from]}; }});
+    staff.forEach(s=>{ for(let d=0;d<7;d++){
+      const from=cellKey(s.id,d);
+      if(schedule[from]){
+        const newBlocks=(schedule[from].blocks||[]).map(b=>({...b,id:Date.now()+Math.random(),reliefs:(b.reliefs||[]).map(r=>({...r,id:Date.now()+Math.random()}))}));
+        ns[`${nwiso}|${s.id}|${d}`]={blocks:newBlocks};
+        propagateReliefs(ns,newBlocks,s.id,d,nwiso);
+      }
+    }});
     setSchedule(ns); setWeekStart(nw); showToast("✅ Week copied — jumped to next week");
   };
 
@@ -317,56 +354,22 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
   const pasteDay = (sId,dayIdx,e) => {
     if(e&&e.stopPropagation)e.stopPropagation(); if(!clipboard)return;
     const ns={...schedule};
-    // Paste blocks with fresh IDs, but give each relief entry a fresh ID too
-    const newBlocks=clipboard.blocks.map(b=>({
-      ...b,
-      id:Date.now()+Math.random(),
-      reliefs:(b.reliefs||[]).map(r=>({...r,id:Date.now()+Math.random()}))
-    }));
+    const newBlocks=clipboard.blocks.map(b=>({...b,id:Date.now()+Math.random(),reliefs:(b.reliefs||[]).map(r=>({...r,id:Date.now()+Math.random()}))}));
     ns[cellKey(sId,dayIdx)]={blocks:newBlocks};
-
-    // Propagate relief assignments to each relief staff member for the new day
-    const srcName=staff.find(s=>String(s.id)===String(sId))?.name||"";
-    newBlocks.forEach(b=>{
-      (b.reliefs||[]).forEach(r=>{
-        if(!r.staffId||!r.startTime||!r.endTime)return;
-        const rKey=cellKey(r.staffId,dayIdx);
-        const existing=(ns[rKey]?.blocks||[]).filter(rb=>rb.reliefBlockId!==r.id);
-        // Find covered room: non-excluded block active at relief start time
-        const rStart=timeToMins(r.startTime);
-        const coveredRoom=newBlocks.find(sb=>
-          sb.room&&!HOURS_EXCLUDED_ROOMS.has(sb.room)&&sb.room!=="Relief"&&
-          timeToMins(sb.startTime)<=rStart&&timeToMins(sb.endTime)>rStart
-        )?.room || newBlocks.reduce((prev,sb)=>{
-          if(!sb.room||HOURS_EXCLUDED_ROOMS.has(sb.room)||sb.room==="Relief")return prev;
-          const end=timeToMins(sb.endTime);
-          if(end<=rStart&&(!prev||end>timeToMins(prev.endTime)))return sb;
-          return prev;
-        },null)?.room || "";
-        const reliefBlock={
-          ...newBlock(r.startTime,r.endTime,coveredRoom),
-          reliefFor:sId,
-          reliefBlockId:r.id,
-          reliefNote:`Relief for ${srcName}`,
-          reliefs:[]
-        };
-        ns[rKey]={blocks:[...existing,reliefBlock]};
-      });
-    });
-
+    propagateReliefs(ns,newBlocks,sId,dayIdx,wiso);
     setSchedule(ns); setClipboard(null); showToast("✅ Shift pasted");
   };
 
   // ── Cell editing ───────────────────────────────────────────────────────────
   const openEdit = (sId,dayIdx) => {
     const ex=getCellData(sId,dayIdx);
-    const loaded=ex?.blocks?.length?ex.blocks.map(b=>{
+    const blocks=ex?.blocks?.length?ex.blocks.map(b=>{
       let reliefs=b.reliefs||[];
       if(!reliefs.length&&b.relief?.staffId) reliefs=[{id:Date.now()+Math.random(),...b.relief}];
       return {...b,reliefs};
     }):[newBlock()];
-    setEditBlocks(loaded);
-    setEditOrigBlocks(loaded); // snapshot for deletion detection
+    setEditBlocks(blocks);
+    setEditOrigBlocks(blocks); // snapshot for deletion detection
     setEditCell({sId,dayIdx});
   };
   const saveEdit = () => {
@@ -400,40 +403,10 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
 
     // ── Write/update relief blocks into relief staff schedules ──
     const prevBlocks=getCellData(editCell.sId,editCell.dayIdx)?.blocks||[];
-    // Collect all previous relief assignments to detect removals
     const prevReliefKeys=new Set();
     prevBlocks.forEach(b=>(b.reliefs||[]).forEach(r=>{if(r.staffId&&r.id)prevReliefKeys.add(`${r.staffId}:${r.id}`);}));
-
-    valid.forEach(b=>{
-      (b.reliefs||[]).forEach(r=>{
-        if(!r.staffId||!r.startTime||!r.endTime)return;
-        prevReliefKeys.delete(`${r.staffId}:${r.id}`); // still present
-        const rKey=cellKey(r.staffId,editCell.dayIdx);
-        const existing=(ns[rKey]?.blocks||[]).filter(rb=>rb.reliefBlockId!==r.id);
-        const srcName=staff.find(s=>String(s.id)===String(editCell.sId))?.name||"";
-        // Find the room the source staff is covering just before / during this break
-        const rStart=timeToMins(r.startTime);
-        const srcBlocks=valid;
-        const coveredRoom=srcBlocks.find(sb=>
-          sb.room&&!HOURS_EXCLUDED_ROOMS.has(sb.room)&&sb.room!=="Relief"&&
-          timeToMins(sb.startTime)<=rStart&&timeToMins(sb.endTime)>rStart
-        )?.room || srcBlocks.reduce((prev,sb)=>{
-          // fallback: last non-excluded block that ends at or before break start
-          if(!sb.room||HOURS_EXCLUDED_ROOMS.has(sb.room)||sb.room==="Relief")return prev;
-          const e=timeToMins(sb.endTime);
-          if(e<=rStart&&(!prev||e>timeToMins(prev.endTime)))return sb;
-          return prev;
-        },null)?.room || "";
-        const reliefBlock={
-          ...newBlock(r.startTime,r.endTime,coveredRoom),
-          reliefFor:editCell.sId,
-          reliefBlockId:r.id,
-          reliefNote:`Relief for ${srcName}`,
-          reliefs:[]
-        };
-        ns[rKey]={blocks:[...existing,reliefBlock]};
-      });
-    });
+    valid.forEach(b=>(b.reliefs||[]).forEach(r=>{ if(r.staffId&&r.id)prevReliefKeys.delete(`${r.staffId}:${r.id}`); }));
+    propagateReliefs(ns,valid,editCell.sId,editCell.dayIdx,wiso);
 
     // Remove relief blocks for any relief assignments that were deleted
     prevReliefKeys.forEach(k=>{
@@ -478,8 +451,17 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
   const saveStaffName  = () => { if(editingStaffName.trim())setStaff(staff.map(s=>s.id===editingStaffId?{...s,name:editingStaffName.trim()}:s)); setEditingStaffId(null); };
   const saveStaffEmail = (id,email) => setStaff(staff.map(s=>s.id===id?{...s,email}:s));
   const removeStaff    = id => {
+    // Clean dangling relief references in other staff's blocks
+    const ns={...schedule};
+    Object.keys(ns).forEach(k=>{
+      if(!ns[k]?.blocks)return;
+      const cleaned=ns[k].blocks.map(b=>({...b,reliefs:(b.reliefs||[]).filter(r=>String(r.staffId)!==String(id))}));
+      ns[k]={...ns[k],blocks:cleaned};
+    });
+    // Remove this staff's own schedule keys — use exact format to avoid ID substring matches
+    Object.keys(ns).forEach(k=>{ const parts=k.split("|"); if(parts[1]===String(id))delete ns[k]; });
     setStaff(staff.filter(s=>s.id!==id));
-    const ns={...schedule}; Object.keys(ns).filter(k=>k.includes(`|${id}|`)).forEach(k=>delete ns[k]); setSchedule(ns);
+    setSchedule(ns);
   };
 
   // ── Rooms ──────────────────────────────────────────────────────────────────
@@ -535,7 +517,13 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
   };
   const loadTemplate   = tmpl => {
     const ns={...schedule};
-    staff.forEach(s=>{ for(let d=0;d<7;d++){ if(tmpl.data[`${s.id}|${d}`])ns[cellKey(s.id,d)]=tmpl.data[`${s.id}|${d}`]; }});
+    staff.forEach(s=>{ for(let d=0;d<7;d++){
+      if(tmpl.data[`${s.id}|${d}`]){
+        const newBlocks=(tmpl.data[`${s.id}|${d}`].blocks||[]).map(b=>({...b,id:Date.now()+Math.random(),reliefs:(b.reliefs||[]).map(r=>({...r,id:Date.now()+Math.random()}))}));
+        ns[cellKey(s.id,d)]={blocks:newBlocks};
+        propagateReliefs(ns,newBlocks,s.id,d,wiso);
+      }
+    }});
     setSchedule(ns); setShowTemplates(false); showToast(`✅ Template "${tmpl.name}" loaded`);
   };
   const deleteTemplate = id => setTemplates(templates.filter(t=>t.id!==id));
@@ -649,12 +637,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
             <div style={{fontSize:12,color:"rgba(255,255,255,0.75)",marginTop:3,fontWeight:600}}>{loc.name}</div>
           </div>
         </div>
-
-        <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-          {saveStatus&&<span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,0.85)"}}>{saveStatus==="saving"?"⏳ Saving…":"✅ Saved"}</span>}
-
-
-        </div>
+        {saveStatus&&<span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,0.85)"}}>{saveStatus==="saving"?"⏳ Saving…":"✅ Saved"}</span>}
       </div>
 
       {/* ── LOCATION TABS ── */}
@@ -771,7 +754,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                   <tr key={s.id} style={{borderBottom:"1px solid #E8F3E8",background:si%2===0?"white":"#FAFDF9"}}>
                     <td style={{padding:"10px 14px",borderRight:"2px solid #E8F3E8",background:si%2===0?"white":"#FAFDF9",verticalAlign:"middle"}}>
                       <div style={{display:"flex",alignItems:"center",gap:8}}>
-                        <div style={{width:34,height:34,borderRadius:"50%",background:getAvatarColor(s.id),display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:900,color:"white",flexShrink:0,boxShadow:"0 2px 6px rgba(0,0,0,0.15)"}}>{initials(s.name)}</div>
+                        <div style={{width:34,height:34,borderRadius:"50%",background:getAvatarColor(si),display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:900,color:"white",flexShrink:0,boxShadow:"0 2px 6px rgba(0,0,0,0.15)"}}>{initials(s.name)}</div>
                         <div style={{flex:1,minWidth:0}}>
                           {editingStaffId===s.id?(
                             <input autoFocus value={editingStaffName} onChange={e=>setEditingStaffName(e.target.value)} onBlur={saveStaffName} onKeyDown={e=>{if(e.key==="Enter")saveStaffName();if(e.key==="Escape")setEditingStaffId(null);}} style={{fontSize:12,fontWeight:700,color:"#1E293B",border:"2px solid #40916C",borderRadius:7,padding:"2px 7px",outline:"none",width:"100%",fontFamily:"inherit",background:"#F0FDF4"}}/>
@@ -817,9 +800,8 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                                         <div style={{marginTop:4,display:"flex",flexDirection:"column",gap:2}}>
                                           {reliefCoverage.map(r=>{
                                             const rSid=String(r.staffId);
-                                            const rName=staff.find(st=>String(st.id)===rSid)?.name||"Unknown";
-                                            // Find what room the relief staff is in at the start of their relief slot
                                             const rMember=staff.find(st=>String(st.id)===rSid);
+                                            const rName=rMember?.name||"Unknown";
                                             const rBlocks=rMember?getCellData(rMember.id,dayIdx)?.blocks||[]:[];
                                             const rStart=timeToMins(r.startTime);
                                             const currentRoom=rBlocks.find(rb=>rb.room&&rb.room!=="Relief"&&!HOURS_EXCLUDED_ROOMS.has(rb.room)&&timeToMins(rb.startTime)<=rStart&&timeToMins(rb.endTime)>rStart);
@@ -859,7 +841,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                 );
               })}
               {staff.length===0&&(
-                <tr><td colSpan={10} style={{padding:"48px 24px",textAlign:"center",color:"#94A3B8",fontSize:14}}>
+                <tr><td colSpan={weekDates.length+2} style={{padding:"48px 24px",textAlign:"center",color:"#94A3B8",fontSize:14}}>
                   <div style={{fontSize:32,marginBottom:8}}>👶</div>No staff at this location yet. Click <strong>"+ Add Staff"</strong> to get started.
                 </td></tr>
               )}
@@ -1076,11 +1058,6 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
               </div>
             )}
 
-            {overlapWarn&&(
-              <div style={{background:"#FFF7ED",border:"1.5px solid #FED7AA",borderRadius:10,padding:"9px 13px",marginBottom:10,fontSize:12,fontWeight:700,color:"#92400E"}}>
-                ⚠️ Overlapping shifts detected — please check start/end times.
-              </div>
-            )}
             <div style={{display:"flex",gap:8}}>
               <button onClick={clearCell} style={{padding:"11px 14px",borderRadius:11,border:"2px solid #FEE2E2",background:"#FFF5F5",color:"#EF4444",fontWeight:800,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>🗑 Clear</button>
               <button onClick={()=>setEditCell(null)} style={{flex:1,padding:11,borderRadius:11,border:"2px solid #E2E8F0",background:"white",color:"#475569",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
@@ -1139,7 +1116,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
             </div>
             <div style={{fontSize:13,color:"#64748B",marginBottom:20}}>Rooms are unique to this location. Click any name to rename it.</div>
             <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:20}}>
-              {rooms.map(room=>{ const c=COLOR_PALETTE[room.colorIdx%COLOR_PALETTE.length]; return(
+              {rooms.map((room,roomIdx)=>{ const c=COLOR_PALETTE[room.colorIdx%COLOR_PALETTE.length]; return(
                 <div key={room.id} style={{background:c.bg,border:`2px solid ${c.border}`,borderRadius:12,padding:"11px 14px"}}>
                   <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:(!HOURS_EXCLUDED_ROOMS.has(room.name)&&room.name!=="Kitchen"&&room.name!=="Floater"&&room.name!=="Office")?8:0}}>
                     <span style={{width:11,height:11,borderRadius:"50%",background:c.dot,flexShrink:0}}/>
@@ -1150,8 +1127,8 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                     )}
                     {editingRoomId!==room.id&&<span style={{fontSize:10.5,color:"#94A3B8",fontStyle:"italic"}}>click to rename</span>}
                     <div style={{display:"flex",gap:2,marginLeft:4}}>
-                      <button onClick={()=>setRooms(r=>{const i=r.findIndex(x=>x.id===room.id);if(i<=0)return r;const a=[...r];[a[i-1],a[i]]=[a[i],a[i-1]];return a;})} disabled={rooms.findIndex(r=>r.id===room.id)===0} style={{background:"#F1F5F9",border:"none",borderRadius:5,width:22,height:22,cursor:"pointer",fontSize:11,color:"#64748B",display:"flex",alignItems:"center",justifyContent:"center",opacity:rooms.findIndex(r=>r.id===room.id)===0?0.3:1}}>▲</button>
-                      <button onClick={()=>setRooms(r=>{const i=r.findIndex(x=>x.id===room.id);if(i>=r.length-1)return r;const a=[...r];[a[i],a[i+1]]=[a[i+1],a[i]];return a;})} disabled={rooms.findIndex(r=>r.id===room.id)===rooms.length-1} style={{background:"#F1F5F9",border:"none",borderRadius:5,width:22,height:22,cursor:"pointer",fontSize:11,color:"#64748B",display:"flex",alignItems:"center",justifyContent:"center",opacity:rooms.findIndex(r=>r.id===room.id)===rooms.length-1?0.3:1}}>▼</button>
+                      <button onClick={()=>setRooms(r=>{const a=[...r];[a[roomIdx-1],a[roomIdx]]=[a[roomIdx],a[roomIdx-1]];return a;})} disabled={roomIdx===0} style={{background:"#F1F5F9",border:"none",borderRadius:5,width:22,height:22,cursor:"pointer",fontSize:11,color:"#64748B",display:"flex",alignItems:"center",justifyContent:"center",opacity:roomIdx===0?0.3:1}}>▲</button>
+                      <button onClick={()=>setRooms(r=>{const a=[...r];[a[roomIdx],a[roomIdx+1]]=[a[roomIdx+1],a[roomIdx]];return a;})} disabled={roomIdx===rooms.length-1} style={{background:"#F1F5F9",border:"none",borderRadius:5,width:22,height:22,cursor:"pointer",fontSize:11,color:"#64748B",display:"flex",alignItems:"center",justifyContent:"center",opacity:roomIdx===rooms.length-1?0.3:1}}>▼</button>
                     </div>
                     <button onClick={()=>setConfirmDelete({type:"room",id:room.id,name:room.name})} disabled={PROTECTED_ROOMS.has(room.name)} style={{background:"none",border:"none",color:PROTECTED_ROOMS.has(room.name)?"transparent":"#CBD5E1",cursor:PROTECTED_ROOMS.has(room.name)?"default":"pointer",fontSize:20,lineHeight:1,padding:"0 2px",position:"relative"}} onMouseEnter={e=>{if(!PROTECTED_ROOMS.has(room.name))e.currentTarget.style.color="#EF4444";}} onMouseLeave={e=>{if(!PROTECTED_ROOMS.has(room.name))e.currentTarget.style.color="#CBD5E1";}}>
                       {PROTECTED_ROOMS.has(room.name)
@@ -1247,7 +1224,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
               {/* Header */}
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20}}>
                 <div style={{display:"flex",alignItems:"center",gap:12}}>
-                  <div style={{width:44,height:44,borderRadius:"50%",background:getAvatarColor(s.id),display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,fontWeight:900,color:"white",boxShadow:"0 2px 8px rgba(0,0,0,0.15)"}}>{initials(s.name)}</div>
+                  <div style={{width:44,height:44,borderRadius:"50%",background:getAvatarColor(staff.findIndex(st=>st.id===s.id)),display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,fontWeight:900,color:"white",boxShadow:"0 2px 8px rgba(0,0,0,0.15)"}}>{initials(s.name)}</div>
                   <div>
                     <div style={{fontWeight:900,fontSize:18,color:"#1E293B"}}>{s.name}</div>
                     <div style={{fontSize:12,color:"#64748B",marginTop:1}}>{loc.name} · {fmtHours(wkMins)} this week</div>
