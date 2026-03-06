@@ -40,6 +40,7 @@ const LOC_COLORS = ["#1E3A8A","#7DC52A","#E8417A","#4BBDE8","#F5A623","#6A1B9A",
 
 // Rooms that don't count toward worked hours
 const HOURS_EXCLUDED_ROOMS = new Set(["Lunch / Break", "Vacation"]);
+const PROTECTED_ROOMS      = new Set(["Lunch / Break"]); // cannot be deleted
 
 const DEFAULT_ROOMS = () => ([
   { id: Date.now()+1, name:"Infant Room",    colorIdx:0 },
@@ -314,8 +315,45 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
   };
   const pasteDay = (sId,dayIdx,e) => {
     if(e&&e.stopPropagation)e.stopPropagation(); if(!clipboard)return;
-    setSchedule({...schedule,[cellKey(sId,dayIdx)]:{blocks:clipboard.blocks.map(b=>({...b,id:Date.now()+Math.random()}))}});
-    setClipboard(null); showToast("✅ Shift pasted");
+    const ns={...schedule};
+    // Paste blocks with fresh IDs, but give each relief entry a fresh ID too
+    const newBlocks=clipboard.blocks.map(b=>({
+      ...b,
+      id:Date.now()+Math.random(),
+      reliefs:(b.reliefs||[]).map(r=>({...r,id:Date.now()+Math.random()}))
+    }));
+    ns[cellKey(sId,dayIdx)]={blocks:newBlocks};
+
+    // Propagate relief assignments to each relief staff member for the new day
+    const srcName=staff.find(s=>String(s.id)===String(sId))?.name||"";
+    newBlocks.forEach(b=>{
+      (b.reliefs||[]).forEach(r=>{
+        if(!r.staffId||!r.startTime||!r.endTime)return;
+        const rKey=cellKey(r.staffId,dayIdx);
+        const existing=(ns[rKey]?.blocks||[]).filter(rb=>rb.reliefBlockId!==r.id);
+        // Find covered room: non-excluded block active at relief start time
+        const rStart=timeToMins(r.startTime);
+        const coveredRoom=newBlocks.find(sb=>
+          sb.room&&!HOURS_EXCLUDED_ROOMS.has(sb.room)&&sb.room!=="Relief"&&
+          timeToMins(sb.startTime)<=rStart&&timeToMins(sb.endTime)>rStart
+        )?.room || newBlocks.reduce((prev,sb)=>{
+          if(!sb.room||HOURS_EXCLUDED_ROOMS.has(sb.room)||sb.room==="Relief")return prev;
+          const end=timeToMins(sb.endTime);
+          if(end<=rStart&&(!prev||end>timeToMins(prev.endTime)))return sb;
+          return prev;
+        },null)?.room || "";
+        const reliefBlock={
+          ...newBlock(r.startTime,r.endTime,coveredRoom),
+          reliefFor:sId,
+          reliefBlockId:r.id,
+          reliefNote:`Relief for ${srcName}`,
+          reliefs:[]
+        };
+        ns[rKey]={blocks:[...existing,reliefBlock]};
+      });
+    });
+
+    setSchedule(ns); setClipboard(null); showToast("✅ Shift pasted");
   };
 
   // ── Cell editing ───────────────────────────────────────────────────────────
@@ -365,8 +403,21 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
         const rKey=cellKey(r.staffId,editCell.dayIdx);
         const existing=(ns[rKey]?.blocks||[]).filter(rb=>rb.reliefBlockId!==r.id);
         const srcName=staff.find(s=>String(s.id)===String(editCell.sId))?.name||"";
+        // Find the room the source staff is covering just before / during this break
+        const rStart=timeToMins(r.startTime);
+        const srcBlocks=valid;
+        const coveredRoom=srcBlocks.find(sb=>
+          sb.room&&!HOURS_EXCLUDED_ROOMS.has(sb.room)&&sb.room!=="Relief"&&
+          timeToMins(sb.startTime)<=rStart&&timeToMins(sb.endTime)>rStart
+        )?.room || srcBlocks.reduce((prev,sb)=>{
+          // fallback: last non-excluded block that ends at or before break start
+          if(!sb.room||HOURS_EXCLUDED_ROOMS.has(sb.room)||sb.room==="Relief")return prev;
+          const e=timeToMins(sb.endTime);
+          if(e<=rStart&&(!prev||e>timeToMins(prev.endTime)))return sb;
+          return prev;
+        },null)?.room || "";
         const reliefBlock={
-          ...newBlock(r.startTime,r.endTime,"Relief"),
+          ...newBlock(r.startTime,r.endTime,coveredRoom),
           reliefFor:editCell.sId,
           reliefBlockId:r.id,
           reliefNote:`Relief for ${srcName}`,
@@ -1065,7 +1116,12 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                       <button onClick={()=>setRooms(r=>{const i=r.findIndex(x=>x.id===room.id);if(i<=0)return r;const a=[...r];[a[i-1],a[i]]=[a[i],a[i-1]];return a;})} disabled={rooms.findIndex(r=>r.id===room.id)===0} style={{background:"#F1F5F9",border:"none",borderRadius:5,width:22,height:22,cursor:"pointer",fontSize:11,color:"#64748B",display:"flex",alignItems:"center",justifyContent:"center",opacity:rooms.findIndex(r=>r.id===room.id)===0?0.3:1}}>▲</button>
                       <button onClick={()=>setRooms(r=>{const i=r.findIndex(x=>x.id===room.id);if(i>=r.length-1)return r;const a=[...r];[a[i],a[i+1]]=[a[i+1],a[i]];return a;})} disabled={rooms.findIndex(r=>r.id===room.id)===rooms.length-1} style={{background:"#F1F5F9",border:"none",borderRadius:5,width:22,height:22,cursor:"pointer",fontSize:11,color:"#64748B",display:"flex",alignItems:"center",justifyContent:"center",opacity:rooms.findIndex(r=>r.id===room.id)===rooms.length-1?0.3:1}}>▼</button>
                     </div>
-                    <button onClick={()=>setConfirmDelete({type:"room",id:room.id,name:room.name})} style={{background:"none",border:"none",color:"#CBD5E1",cursor:"pointer",fontSize:20,lineHeight:1,padding:"0 2px"}} onMouseEnter={e=>e.currentTarget.style.color="#EF4444"} onMouseLeave={e=>e.currentTarget.style.color="#CBD5E1"}>×</button>
+                    <button onClick={()=>setConfirmDelete({type:"room",id:room.id,name:room.name})} disabled={PROTECTED_ROOMS.has(room.name)} style={{background:"none",border:"none",color:PROTECTED_ROOMS.has(room.name)?"transparent":"#CBD5E1",cursor:PROTECTED_ROOMS.has(room.name)?"default":"pointer",fontSize:20,lineHeight:1,padding:"0 2px",position:"relative"}} onMouseEnter={e=>{if(!PROTECTED_ROOMS.has(room.name))e.currentTarget.style.color="#EF4444";}} onMouseLeave={e=>{if(!PROTECTED_ROOMS.has(room.name))e.currentTarget.style.color="#CBD5E1";}}>
+                      {PROTECTED_ROOMS.has(room.name)
+                        ?<span style={{fontSize:11,fontWeight:800,color:"#92400E",background:"#FEF3C7",border:"1.5px solid #FCD34D",borderRadius:6,padding:"2px 7px",letterSpacing:"0.3px"}}>🔒 Protected</span>
+                        :"×"
+                      }
+                    </button>
                   </div>
                   {!HOURS_EXCLUDED_ROOMS.has(room.name)&&room.name!=="Kitchen"&&room.name!=="Floater"&&room.name!=="Office"&&(
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
