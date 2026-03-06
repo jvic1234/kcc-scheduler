@@ -373,6 +373,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
     setEditCell({sId,dayIdx});
   };
   const saveEdit = () => {
+    if(reliefOverlapError) return; // hard block — relief commitment can't be overridden
     const valid=editBlocks.filter(b=>b.room&&b.startTime&&b.endTime);
     const ns={...schedule},key=cellKey(editCell.sId,editCell.dayIdx);
     if(valid.length===0)delete ns[key]; else ns[key]={blocks:valid};
@@ -611,6 +612,19 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
   const handleStaffPrint = (s,e) => { e.stopPropagation(); const w=window.open("","_blank"); if(w){w.document.write(buildPrintHtml([s],`${s.name}'s Schedule`));w.document.close();}else alert("Please allow pop-ups."); };
 
   const overlapWarn = editBlocks.length>1&&hasOverlap(editBlocks.filter(b=>b.startTime&&b.endTime));
+  // Hard block: a new/regular block overlaps an existing relief commitment — cannot be overridden
+  const reliefOverlapError = (() => {
+    const reliefBlocks = editBlocks.filter(b=>b.reliefFor&&b.startTime&&b.endTime);
+    const regularBlocks = editBlocks.filter(b=>!b.reliefFor&&b.room&&b.startTime&&b.endTime);
+    for(const rb of reliefBlocks){
+      const rs=timeToMins(rb.startTime),re=timeToMins(rb.endTime);
+      for(const nb of regularBlocks){
+        const ns=timeToMins(nb.startTime),ne=timeToMins(nb.endTime);
+        if(ns<re&&rs<ne) return rb;
+      }
+    }
+    return null;
+  })();
 
   // ─────────────────────────────────────────────────────────────────────────
   // RENDER
@@ -913,6 +927,10 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
               <button onClick={()=>setEditCell(null)} style={{background:"#F1F5F9",border:"none",borderRadius:8,width:30,height:30,cursor:"pointer",fontSize:18,color:"#64748B",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>×</button>
             </div>
 
+            {reliefOverlapError&&<div style={{background:"#FEE2E2",border:"1.5px solid #EF4444",borderRadius:10,padding:"10px 14px",marginBottom:14,display:"flex",alignItems:"center",gap:8}}>
+              <span style={{fontSize:18}}>🚫</span>
+              <span style={{fontSize:13,fontWeight:700,color:"#991B1B"}}>This block overlaps a relief commitment ({reliefOverlapError.reliefNote}, {reliefOverlapError.startTime}–{reliefOverlapError.endTime}). Adjust or remove the conflicting block to save.</span>
+            </div>}
             {overlapWarn&&<div style={{background:"#FFF3CD",border:"1.5px solid #FFB300",borderRadius:10,padding:"10px 14px",marginBottom:14,display:"flex",alignItems:"center",gap:8}}>
               <span style={{fontSize:18}}>⚠️</span>
               <span style={{fontSize:13,fontWeight:700,color:"#856404"}}>Two or more blocks overlap — please check your start and end times.</span>
@@ -1073,7 +1091,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
             <div style={{display:"flex",gap:8}}>
               <button onClick={clearCell} style={{padding:"11px 14px",borderRadius:11,border:"2px solid #FEE2E2",background:"#FFF5F5",color:"#EF4444",fontWeight:800,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>🗑 Clear</button>
               <button onClick={()=>setEditCell(null)} style={{flex:1,padding:11,borderRadius:11,border:"2px solid #E2E8F0",background:"white",color:"#475569",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
-              <button onClick={saveEdit} style={{flex:1,padding:11,borderRadius:11,border:"none",background:`linear-gradient(135deg,${locColor},${locColor}cc)`,color:"white",fontWeight:800,fontSize:14,cursor:"pointer",fontFamily:"inherit",boxShadow:"0 4px 14px rgba(0,0,0,0.2)"}}>Save Shift ✓</button>
+              <button onClick={saveEdit} disabled={!!reliefOverlapError} style={{flex:1,padding:11,borderRadius:11,border:"none",background:reliefOverlapError?"#FCA5A5":`linear-gradient(135deg,${locColor},${locColor}cc)`,color:"white",fontWeight:800,fontSize:14,cursor:reliefOverlapError?"not-allowed":"pointer",fontFamily:"inherit",boxShadow:reliefOverlapError?"none":"0 4px 14px rgba(0,0,0,0.2)",opacity:reliefOverlapError?0.7:1}}>Save Shift ✓</button>
             </div>
           </div>
         </div>
