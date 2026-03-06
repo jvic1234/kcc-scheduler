@@ -727,11 +727,34 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                               onMouseLeave={e=>{e.currentTarget.style.boxShadow="none";e.currentTarget.style.borderColor=clipboard?"#1565C0":blocks.length?"#D8EDD5":"#D1E8D1";}}>
                               {blocks.length?(
                                 <>
-                                  {blocks.map(b=>{ const c=rc(b.room); return(
+                                  {blocks.map(b=>{ const c=rc(b.room); 
+                                    // Find relief coverage for this block (break/excluded rooms)
+                                    const reliefCoverage=(b.reliefs||[]).filter(r=>r.staffId&&r.startTime&&r.endTime);
+                                    // Find what room this relief staff is covering from (for relief blocks)
+                                    return(
                                     <div key={b.id} style={{background:c.bg,border:`1.5px solid ${c.border}`,borderRadius:7,padding:"4px 7px"}}>
                                       <div style={{fontSize:11,fontWeight:800,color:c.text}}>{b.room||<span style={{color:"#94A3B8",fontStyle:"italic"}}>No room</span>}</div>
                                       {b.reliefNote&&<div style={{fontSize:9.5,fontWeight:700,color:"#92400E",background:"#FEF9C3",borderRadius:4,padding:"1px 5px",marginTop:2}}>{b.reliefNote}</div>}
                                       <div style={{fontSize:10,color:"#64748B",fontWeight:600}}>{b.startTime} – {b.endTime}</div>
+                                      {reliefCoverage.length>0&&(
+                                        <div style={{marginTop:4,display:"flex",flexDirection:"column",gap:2}}>
+                                          {reliefCoverage.map(r=>{
+                                            const rName=staff.find(st=>st.id===r.staffId)?.name||"?";
+                                            // Find what room relief staff is in during their relief time
+                                            const rBlocks=getCellData(r.staffId,dayIdx)?.blocks||[];
+                                            const rStart=timeToMins(r.startTime);
+                                            const currentRoom=rBlocks.find(rb=>rb.room&&rb.room!=="Relief"&&!HOURS_EXCLUDED_ROOMS.has(rb.room)&&timeToMins(rb.startTime)<=rStart&&timeToMins(rb.endTime)>rStart);
+                                            return(
+                                              <div key={r.id} style={{background:"#FEF9C3",border:"1px solid #FCD34D",borderRadius:4,padding:"2px 5px",display:"flex",alignItems:"center",gap:4}}>
+                                                <span style={{fontSize:9,fontWeight:900,color:"#92400E"}}>→</span>
+                                                <span style={{fontSize:9.5,fontWeight:800,color:"#78350F"}}>{rName}</span>
+                                                <span style={{fontSize:9,fontWeight:600,color:"#92400E",opacity:0.8}}>{r.startTime}–{r.endTime}</span>
+                                                {currentRoom&&<span style={{fontSize:9,fontWeight:700,color:"#1B4332",background:"#D1FAE5",borderRadius:3,padding:"0 4px",marginLeft:2}}>from {currentRoom.room}</span>}
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                      )}
                                     </div>
                                   ); })}
                                   {mins>0&&<div style={{textAlign:"right",fontSize:9.5,color:"#94A3B8",fontWeight:700,paddingRight:3}}>{fmtHours(mins)}</div>}
@@ -914,6 +937,16 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                                   </div>
                                 </div>
                                 {r.staffId&&<div style={{marginTop:6,fontSize:10,fontWeight:700,color:"#65520A",background:"#FEF9C3",borderRadius:5,padding:"3px 7px"}}>✅ {staff.find(s=>s.id===r.staffId)?.name} → added to their schedule</div>}
+                                {r.staffId&&r.startTime&&(()=>{
+                                  const rStart=timeToMins(r.startTime);
+                                  const theirBlocks=getCellData(r.staffId,editCell?.dayIdx)?.blocks||[];
+                                  const inRoom=theirBlocks.find(tb=>tb.room&&!HOURS_EXCLUDED_ROOMS.has(tb.room)&&tb.room!=="Relief"&&timeToMins(tb.startTime)<=rStart&&timeToMins(tb.endTime)>rStart);
+                                  return inRoom?(
+                                    <div style={{marginTop:4,background:"#ECFDF5",border:"1px solid #6EE7B7",borderRadius:5,padding:"3px 8px",fontSize:10,fontWeight:700,color:"#065F46"}}>
+                                      📍 Currently in: <strong>{inRoom.room}</strong> ({inRoom.startTime}–{inRoom.endTime}) — relief coverage needed there
+                                    </div>
+                                  ):null;
+                                })()}
                               </div>
                             ))}
                             <button onClick={addRelief} style={{width:"100%",padding:"7px 10px",borderRadius:7,border:"2px dashed #FCD34D",background:"#FFFBEB",color:"#92400E",fontWeight:800,fontSize:11.5,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:5}}>+ Add Relief Staff</button>
