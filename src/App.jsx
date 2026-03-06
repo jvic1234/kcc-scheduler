@@ -42,45 +42,84 @@ const useAuth = () => useContext(AuthContext);
 
 // ─── Supabase storage shim ────────────────────────────────────────────────────
 // Install synchronously so window.storage is ready before scheduler mounts.
+// Shared row key — all users share the same schedule row
+const SHARED_KEY = "shared:kcc-v1";
+
 function installStorageShim(userId) {
   window.storage = {
     get: async (key) => {
-      const scopedKey = `${userId}:${key}`;
       const { data, error } = await supabase
         .from("schedule")
         .select("data")
-        .eq("id", scopedKey)
+        .eq("id", SHARED_KEY)
         .maybeSingle();
       if (error || !data) throw new Error("key not found");
       return { key, value: JSON.stringify(data.data) };
     },
     set: async (key, value) => {
-      const scopedKey = `${userId}:${key}`;
-      const parsed = JSON.parse(value);
+      // Fetch latest first, then merge at location/schedule level to avoid overwriting concurrent changes
+      const { data: existing } = await supabase
+        .from("schedule")
+        .select("data")
+        .eq("id", SHARED_KEY)
+        .maybeSingle();
+
+      const incoming = JSON.parse(value);
+
+      let merged = incoming;
+      if (existing?.data) {
+        // Deep merge: keep all locations, merge schedule cells per location
+        const base = existing.data;
+        merged = { ...base, ...incoming, activeLocId: incoming.activeLocId };
+
+        // Merge locations array
+        const mergedLocs = [...(incoming.locations || [])];
+        for (const baseLoc of (base.locations || [])) {
+          const idx = mergedLocs.findIndex(l => l.id === baseLoc.id);
+          if (idx >= 0) {
+            // Merge schedule cells — incoming wins per cell (last write wins)
+            mergedLocs[idx] = {
+              ...baseLoc,
+              ...mergedLocs[idx],
+              schedule: { ...(baseLoc.schedule || {}), ...(mergedLocs[idx].schedule || {}) }
+            };
+          } else {
+            mergedLocs.push(baseLoc);
+          }
+        }
+        merged.locations = mergedLocs;
+      }
+
       const { error } = await supabase
         .from("schedule")
-        .upsert({ id: scopedKey, data: parsed, updated_at: new Date().toISOString() });
-      if (error) {
-        console.error("Storage save error:", error);
-        return null;
-      }
+        .upsert({ id: SHARED_KEY, data: merged, updated_at: new Date().toISOString() });
+      if (error) { console.error("Storage save error:", error); return null; }
       return { key, value };
     },
     delete: async (key) => {
-      const scopedKey = `${userId}:${key}`;
-      await supabase.from("schedule").delete().eq("id", scopedKey);
+      await supabase.from("schedule").delete().eq("id", SHARED_KEY);
       return { key, deleted: true };
     },
-    list: async (prefix) => {
-      const scopedPrefix = `${userId}:${prefix || ""}`;
-      const { data } = await supabase
-        .from("schedule")
-        .select("id")
-        .like("id", `${scopedPrefix}%`);
-      const keys = (data || []).map(r => r.id.replace(`${userId}:`, ""));
-      return { keys };
+    list: async () => {
+      const { data } = await supabase.from("schedule").select("id").eq("id", SHARED_KEY);
+      return { keys: data?.length ? ["kcc-v1"] : [] };
     },
   };
+}
+
+// Real-time sync — call this after shim is installed to subscribe to remote changes
+function subscribeToRealtimeChanges(onRemoteChange) {
+  return supabase
+    .channel("schedule-changes")
+    .on("postgres_changes", {
+      event: "UPDATE",
+      schema: "public",
+      table: "schedule",
+      filter: `id=eq.${SHARED_KEY}`,
+    }, (payload) => {
+      if (payload.new?.data) onRemoteChange(payload.new.data);
+    })
+    .subscribe();
 }
 
 // ─── Login / Sign-up screen ───────────────────────────────────────────────────
@@ -155,6 +194,11 @@ function AuthScreen() {
 // ─── Authenticated shell ──────────────────────────────────────────────────────
 function SchedulerShell() {
   const { session, signOut } = useAuth();
+  const [onlineUsers, setOnlineUsers] = useState([]);
+  const [remoteData, setRemoteData]   = useState(null);
+  const realtimeRef = useRef(null);
+  const presenceRef = useRef(null);
+
   // Install shim SYNCHRONOUSLY during render — before scheduler's useEffect fires
   const shimInstalledRef = useRef(false);
   if (!shimInstalledRef.current) {
@@ -162,8 +206,52 @@ function SchedulerShell() {
     shimInstalledRef.current = true;
   }
 
-  // Close menu on outside click
-  return <KidsConnectionScheduler userEmail={session.user.email} onSignOut={signOut} />;
+  useEffect(() => {
+    // Subscribe to live schedule changes from other users
+    realtimeRef.current = subscribeToRealtimeChanges((data) => {
+      setRemoteData(data);
+    });
+
+    // Presence — show who's online
+    const shortName = session.user.email.split("@")[0];
+    presenceRef.current = supabase
+      .channel("kcc-presence")
+      .on("presence", { event: "sync" }, () => {
+        const state = presenceRef.current.presenceState();
+        const users = Object.values(state).flat().map(u => u.name).filter(Boolean);
+        setOnlineUsers([...new Set(users)]);
+      })
+      .subscribe(async (status) => {
+        if (status === "SUBSCRIBED") {
+          await presenceRef.current.track({ name: shortName });
+        }
+      });
+
+    return () => {
+      realtimeRef.current?.unsubscribe();
+      presenceRef.current?.unsubscribe();
+    };
+  }, []);
+
+  return (
+    <>
+      {onlineUsers.length > 1 && (
+        <div style={{ background:"#1B4332", padding:"6px 20px", display:"flex", alignItems:"center", gap:10, fontSize:12, fontFamily:"'Nunito',sans-serif" }}>
+          <span style={{ color:"#95D5B2", fontWeight:800 }}>🟢 Live:</span>
+          {onlineUsers.map((u,i) => (
+            <span key={i} style={{ background:"rgba(255,255,255,0.15)", color:"white", padding:"2px 10px", borderRadius:20, fontWeight:700 }}>{u}</span>
+          ))}
+          <span style={{ color:"rgba(255,255,255,0.5)", fontSize:11 }}>· Changes sync automatically</span>
+        </div>
+      )}
+      <KidsConnectionScheduler
+        userEmail={session.user.email}
+        onSignOut={signOut}
+        remoteData={remoteData}
+        onRemoteDataConsumed={() => setRemoteData(null)}
+      />
+    </>
+  );
 }
 
 // ─── Root ─────────────────────────────────────────────────────────────────────

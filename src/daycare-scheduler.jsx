@@ -153,7 +153,7 @@ function downloadICS(icsContent, filename) {
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
-export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{} }) {
+export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}, remoteData=null, onRemoteDataConsumed=()=>{} }) {
 
   // ── Persisted state ────────────────────────────────────────────────────────
   const [loaded,           setLoaded]           = useState(false);
@@ -202,6 +202,31 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
 
   // Update a field on the active location
   const updateLoc = (patch) => setLocations(locs=>locs.map(l=>l.id===activeLocId?{...l,...patch}:l));
+
+  // ── Merge incoming realtime changes from other users ──────────────────────
+  useEffect(()=>{
+    if(!remoteData) return;
+    setLocations(current => {
+      const merged = [...current];
+      for(const remoteLoc of (remoteData.locations||[])) {
+        const idx = merged.findIndex(l=>l.id===remoteLoc.id);
+        if(idx>=0) {
+          // Merge schedule cells — remote wins for any cell not being actively edited
+          merged[idx] = {
+            ...merged[idx],
+            staff:    remoteLoc.staff    || merged[idx].staff,
+            rooms:    remoteLoc.rooms    || merged[idx].rooms,
+            templates:remoteLoc.templates|| merged[idx].templates,
+            schedule: { ...(merged[idx].schedule||{}), ...(remoteLoc.schedule||{}) }
+          };
+        } else {
+          merged.push(remoteLoc);
+        }
+      }
+      return merged;
+    });
+    onRemoteDataConsumed();
+  }, [remoteData]);
   const staff     = loc.staff;
   const rooms     = loc.rooms;
   const schedule  = loc.schedule;
