@@ -56,42 +56,10 @@ function installStorageShim() {
       return { key, value: JSON.stringify(data.data) };
     },
     set: async (key, value) => {
-      // Fetch latest first, then merge at location/schedule level to avoid overwriting concurrent changes
-      const { data: existing } = await supabase
-        .from("schedule")
-        .select("data")
-        .eq("id", SHARED_KEY)
-        .maybeSingle();
-
       const incoming = JSON.parse(value);
-
-      let merged = incoming;
-      if (existing?.data) {
-        // Deep merge: keep all locations, merge schedule cells per location
-        const base = existing.data;
-        merged = { ...base, ...incoming, activeLocId: incoming.activeLocId };
-
-        // Merge locations array
-        const mergedLocs = [...(incoming.locations || [])];
-        for (const baseLoc of (base.locations || [])) {
-          const idx = mergedLocs.findIndex(l => l.id === baseLoc.id);
-          if (idx >= 0) {
-            // Merge schedule cells — incoming wins per cell (last write wins)
-            mergedLocs[idx] = {
-              ...baseLoc,
-              ...mergedLocs[idx],
-              schedule: { ...(baseLoc.schedule || {}), ...(mergedLocs[idx].schedule || {}) }
-            };
-          } else {
-            mergedLocs.push(baseLoc);
-          }
-        }
-        merged.locations = mergedLocs;
-      }
-
       const { error } = await supabase
         .from("schedule")
-        .upsert({ id: SHARED_KEY, data: merged, updated_at: new Date().toISOString() });
+        .upsert({ id: SHARED_KEY, data: incoming, updated_at: new Date().toISOString() });
       if (error) { console.error("Storage save error:", error); return null; }
       return { key, value };
     },

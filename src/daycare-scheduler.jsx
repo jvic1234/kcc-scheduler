@@ -227,7 +227,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
             staff:    remoteLoc.staff    || merged[idx].staff,
             rooms:    remoteLoc.rooms    || merged[idx].rooms,
             templates:remoteLoc.templates|| merged[idx].templates,
-            schedule: { ...(merged[idx].schedule||{}), ...(remoteLoc.schedule||{}) }
+            schedule: remoteLoc.schedule || merged[idx].schedule
           };
         } else {
           merged.push(remoteLoc);
