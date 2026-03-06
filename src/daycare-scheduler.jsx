@@ -7,7 +7,7 @@ const DAY_SHORT = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 function generateTimes() {
   const t = [];
   for (let h = 5; h <= 18; h++) {
-    for (let m = 0; m < 60; m += 30) {
+    for (let m = 0; m < 60; m += 15) {
       if (h === 5 && m < 30) continue; // start at 5:30 AM
       if (h === 18 && m > 30) break;   // end at 6:30 PM
       const h12 = h > 12 ? h - 12 : h === 0 ? 12 : h;
