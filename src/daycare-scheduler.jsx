@@ -202,7 +202,8 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
   const [showCalendar,     setShowCalendar]     = useState(false);
   const [calViewMonth,     setCalViewMonth]     = useState(()=>{ const n=new Date(); return new Date(n.getFullYear(),n.getMonth(),1); });
 
-  const calRef    = useRef(null);
+  const calRef          = useRef(null);
+  const isRemoteUpdate  = useRef(false);
   const weekDates = getWeekDates(weekStart);
   const wiso      = weekStart.toISOString();
 
@@ -216,6 +217,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
   // ── Merge incoming realtime changes from other users ──────────────────────
   useEffect(()=>{
     if(!remoteData) return;
+    isRemoteUpdate.current = true;
     setLocations(current => {
       const merged = [...current];
       for(const remoteLoc of (remoteData.locations||[])) {
@@ -264,6 +266,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
 
   useEffect(()=>{
     if(!loaded)return;
+    if(isRemoteUpdate.current){ isRemoteUpdate.current=false; return; }
     setSaveStatus("saving");
     const t=setTimeout(async()=>{
       try{ await window.storage.set("kcc-v1",JSON.stringify({locations,activeLocId,attendance})); setSaveStatus("saved"); setTimeout(()=>setSaveStatus(""),2200); }
