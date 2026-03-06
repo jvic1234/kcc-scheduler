@@ -771,6 +771,10 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                   <tr key={s.id} style={{borderBottom:"1px solid #E8F3E8",background:si%2===0?"white":"#FAFDF9"}}>
                     <td style={{padding:"10px 14px",borderRight:"2px solid #E8F3E8",background:si%2===0?"white":"#FAFDF9",verticalAlign:"middle"}}>
                       <div style={{display:"flex",alignItems:"center",gap:8}}>
+                        <div style={{display:"flex",flexDirection:"column",gap:2}}>
+                          <button onClick={()=>setStaff(a=>{const n=[...a];[n[si-1],n[si]]=[n[si],n[si-1]];return n;})} disabled={si===0} style={{background:"#F1F5F9",border:"none",borderRadius:5,width:20,height:20,cursor:si===0?"default":"pointer",fontSize:11,color:"#64748B",display:"flex",alignItems:"center",justifyContent:"center",opacity:si===0?0.3:1,flexShrink:0}}>▲</button>
+                          <button onClick={()=>setStaff(a=>{const n=[...a];[n[si],n[si+1]]=[n[si+1],n[si]];return n;})} disabled={si===staff.length-1} style={{background:"#F1F5F9",border:"none",borderRadius:5,width:20,height:20,cursor:si===staff.length-1?"default":"pointer",fontSize:11,color:"#64748B",display:"flex",alignItems:"center",justifyContent:"center",opacity:si===staff.length-1?0.3:1,flexShrink:0}}>▼</button>
+                        </div>
                         <div style={{width:34,height:34,borderRadius:"50%",background:getAvatarColor(si),display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:900,color:"white",flexShrink:0,boxShadow:"0 2px 6px rgba(0,0,0,0.15)"}}>{initials(s.name)}</div>
                         <div style={{flex:1,minWidth:0}}>
                           {editingStaffId===s.id?(
