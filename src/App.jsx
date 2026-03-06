@@ -30,7 +30,6 @@ function AuthProvider({ children }) {
       session,
       loading,
       signIn:  (email, pw) => supabase.auth.signInWithPassword({ email, password: pw }),
-      signUp:  (email, pw) => supabase.auth.signUp({ email, password: pw }),
       signOut: ()          => supabase.auth.signOut(),
     }}>
       {children}
@@ -45,7 +44,7 @@ const useAuth = () => useContext(AuthContext);
 // Shared row key — all users share the same schedule row
 const SHARED_KEY = "shared:kcc-v1";
 
-function installStorageShim(userId) {
+function installStorageShim() {
   window.storage = {
     get: async (key) => {
       const { data, error } = await supabase
@@ -124,11 +123,10 @@ function subscribeToRealtimeChanges(onRemoteChange) {
 
 // ─── Login / Sign-up screen ───────────────────────────────────────────────────
 function AuthScreen() {
-  const { signIn, signUp } = useAuth();
+  const { signIn } = useAuth();
   const [email,    setEmail]    = useState("");
   const [password, setPassword] = useState("");
   const [error,    setError]    = useState("");
-  const [info,     setInfo]     = useState("");
   const [busy,     setBusy]     = useState(false);
   const [focused,  setFocused]  = useState("");
 
@@ -143,13 +141,11 @@ function AuthScreen() {
     inputFoc: { borderColor:"rgba(192,132,252,0.5)" },
     group:    { marginBottom:20 },
     btn:      { width:"100%", padding:"13px 24px", background:"linear-gradient(135deg,#c084fc,#818cf8)", border:"none", borderRadius:10, color:"#fff", fontSize:15, fontWeight:700, cursor:"pointer", marginTop:8 },
-    btnSec:   { background:"transparent", border:"1px solid rgba(255,255,255,0.12)", color:"#9490a8" },
     err:      { background:"rgba(239,68,68,0.1)", border:"1px solid rgba(239,68,68,0.3)", color:"#fca5a5", borderRadius:8, padding:"10px 14px", fontSize:13, marginBottom:16 },
-    ok:       { background:"rgba(34,197,94,0.1)", border:"1px solid rgba(34,197,94,0.3)", color:"#86efac", borderRadius:8, padding:"10px 14px", fontSize:13, marginBottom:16 },
   };
 
   const handle = async () => {
-    setError(""); setInfo("");
+    setError("");
     if (!email || !password) return setError("Please fill in all fields.");
     setBusy(true);
     try {
@@ -166,7 +162,6 @@ function AuthScreen() {
           <div style={S.logo}>🌱 Kids Connection Childcare</div>
           <p style={S.sub}>Welcome back — sign in to continue.</p>
           {error && <div style={S.err}>{error}</div>}
-          {info  && <div style={S.ok}>{info}</div>}
           {[["Email","email",email,setEmail,"email"],["Password","pass",password,setPassword,"password"]].map(([label,id,val,set,type]) => (
             <div key={id} style={S.group}>
               <label style={S.label}>{label}</label>
@@ -202,7 +197,7 @@ function SchedulerShell() {
   // Install shim SYNCHRONOUSLY during render — before scheduler's useEffect fires
   const shimInstalledRef = useRef(false);
   if (!shimInstalledRef.current) {
-    installStorageShim(session.user.id);
+    installStorageShim();
     shimInstalledRef.current = true;
   }
 

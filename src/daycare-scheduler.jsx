@@ -479,7 +479,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
   const handlePrint      = ()    => { const w=window.open("","_blank"); if(w){w.document.write(buildPrintHtml(staff,"Weekly Schedule"));w.document.close();}else alert("Please allow pop-ups."); };
   const handleStaffPrint = (s,e) => { e.stopPropagation(); const w=window.open("","_blank"); if(w){w.document.write(buildPrintHtml([s],`${s.name}'s Schedule`));w.document.close();}else alert("Please allow pop-ups."); };
 
-  const overlapWarn = editBlocks.length>1&&hasOverlap(editBlocks);
+  const overlapWarn = editBlocks.length>1&&hasOverlap(editBlocks.filter(b=>b.startTime&&b.endTime));
 
   // ─────────────────────────────────────────────────────────────────────────
   // RENDER
@@ -508,7 +508,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
         </div>
 
         <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-          {saveStatus&&<span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,0.85)",fontWeight:700}}>{saveStatus==="saving"?"⏳ Saving…":"✅ Saved"}</span>}
+          {saveStatus&&<span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,0.85)"}}>{saveStatus==="saving"?"⏳ Saving…":"✅ Saved"}</span>}
 
 
         </div>
@@ -836,6 +836,11 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
               </div>
             )}
 
+            {overlapWarn&&(
+              <div style={{background:"#FFF7ED",border:"1.5px solid #FED7AA",borderRadius:10,padding:"9px 13px",marginBottom:10,fontSize:12,fontWeight:700,color:"#92400E"}}>
+                ⚠️ Overlapping shifts detected — please check start/end times.
+              </div>
+            )}
             <div style={{display:"flex",gap:8}}>
               <button onClick={clearCell} style={{padding:"11px 14px",borderRadius:11,border:"2px solid #FEE2E2",background:"#FFF5F5",color:"#EF4444",fontWeight:800,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>🗑 Clear</button>
               <button onClick={()=>setEditCell(null)} style={{flex:1,padding:11,borderRadius:11,border:"2px solid #E2E8F0",background:"white",color:"#475569",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
@@ -1109,25 +1114,27 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                   </tr>
                 </thead>
                 <tbody>
-                  {rooms.filter(r=>!attendanceExcluded.has(r.name)).map((room,ri)=>{
+                  {rooms.map((room,ri)=>{
                     const c=COLOR_PALETTE[room.colorIdx%COLOR_PALETTE.length];
-                    const weekTotal=DAY_SHORT.reduce((sum,_,i)=>{
-                      const k=`${wiso}|${i}|${room.id}`;
-                      return sum+(attendance[k]||0);
-                    },0);
+                    const isExcluded=attendanceExcluded.has(room.name);
+                    const weekTotal=DAY_SHORT.reduce((sum,_,i)=>sum+(attendance[`${wiso}|${i}|${room.id}`]||0),0);
                     return(
-                      <tr key={room.id} style={{borderBottom:"1px solid #F1F5F9",background:ri%2===0?"white":"#FAFDF9"}}>
+                      <tr key={room.id} style={{borderBottom:"1px solid #F1F5F9",background:isExcluded?"#FAFAFA":ri%2===0?"white":"#FAFDF9",opacity:isExcluded?0.5:1}}>
                         <td style={{padding:"10px 14px"}}>
                           <div style={{display:"flex",alignItems:"center",gap:8}}>
                             <span style={{width:10,height:10,borderRadius:"50%",background:c.dot,flexShrink:0}}/>
-                            <span style={{fontSize:13,fontWeight:800,color:c.text}}>{room.name}</span>
-                            <button onClick={()=>setAttendanceExcluded(prev=>{const n=new Set(prev);n.has(room.name)?n.delete(room.name):n.add(room.name);return n;})} style={{marginLeft:"auto",padding:"2px 9px",borderRadius:6,border:"none",background:attendanceExcluded.has(room.name)?"#FEE2E2":"#E8F5E8",color:attendanceExcluded.has(room.name)?"#DC2626":"#2D6A4F",fontSize:10,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>
-                              {attendanceExcluded.has(room.name)?"excluded ×":"include ✓"}
+                            <span style={{fontSize:13,fontWeight:800,color:c.text,textDecoration:isExcluded?"line-through":"none"}}>{room.name}</span>
+                            <button
+                              onClick={()=>setAttendanceExcluded(prev=>{const n=new Set(prev);n.has(room.name)?n.delete(room.name):n.add(room.name);return n;})}
+                              style={{marginLeft:"auto",padding:"3px 10px",borderRadius:6,border:"none",background:isExcluded?"#F1F5F9":"#FEE2E2",color:isExcluded?"#64748B":"#DC2626",fontSize:10,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}
+                            >
+                              {isExcluded?"+ include":"× exclude"}
                             </button>
                           </div>
-                          {room.capacity&&<div style={{fontSize:10,color:"#94A3B8",fontWeight:600,marginTop:2,paddingLeft:18}}>Cap: {room.capacity}{room.ratio?` · Ratio: ${room.ratio}`:""}</div>}
+                          {room.capacity&&!isExcluded&&<div style={{fontSize:10,color:"#94A3B8",fontWeight:600,marginTop:2,paddingLeft:18}}>Cap: {room.capacity}{room.ratio?` · Ratio: ${room.ratio}`:""}</div>}
                         </td>
                         {DAY_SHORT.map((_,i)=>{
+                          if(isExcluded) return <td key={i} style={{padding:"8px",textAlign:"center",color:"#CBD5E1",fontSize:12}}>—</td>;
                           const k=`${wiso}|${i}|${room.id}`;
                           const val=attendance[k]||"";
                           const overCap=room.capacity&&val>room.capacity;
@@ -1144,7 +1151,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                             </td>
                           );
                         })}
-                        <td style={{padding:"8px",textAlign:"center",fontSize:13,fontWeight:900,color:weekTotal>0?"#1E3A8A":"#CBD5E1"}}>{weekTotal||"—"}</td>
+                        <td style={{padding:"8px",textAlign:"center",fontSize:13,fontWeight:900,color:weekTotal>0?"#1E3A8A":"#CBD5E1"}}>{isExcluded?"—":weekTotal||"—"}</td>
                       </tr>
                     );
                   })}
@@ -1188,9 +1195,9 @@ function AiAssistant({ loc, staff, rooms, weekLabel, weekIso, DAYS, getCellData,
     // Fetch last 8 weeks of schedule data from Supabase for AI context
     async function fetchHistory() {
       try {
-        const { createClient } = await import("https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm");
+        const { createClient } = await import("@supabase/supabase-js");
         const sb = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY);
-        const { data } = await sb.from("schedule").select("data,updated_at").order("updated_at",{ascending:false}).limit(20);
+        const { data } = await sb.from("schedule").select("data,updated_at").order("updated_at",{ascending:false}).limit(1);
         if(!data||!data.length) return;
         // Build a summary of past schedules
         const summaries = [];
