@@ -139,7 +139,22 @@ function toICSDate(date, timeStr) {
   const y=date.getFullYear(), mo=date.getMonth()+1, d=date.getDate();
   return `${y}${pad(mo)}${pad(d)}T${pad(h)}${pad(m)}00`;
 }
-function generateICS(staffMember, weekDates, schedule, locName) {
+function buildICSDescription(staffMember, block, allStaff) {
+  const lines = [`${staffMember.name} \u00b7 ${block.startTime} to ${block.endTime}`];
+  if (block.reliefFor) {
+    lines.push(`Covering for: ${block.reliefNote || "colleague"}`);
+  }
+  const reliefs = (block.reliefs || []).filter(r => r.staffId && r.startTime && r.endTime);
+  if (reliefs.length > 0) {
+    lines.push("Relief coverage:");
+    reliefs.forEach(r => {
+      const name = allStaff?.find(s => String(s.id) === String(r.staffId))?.name || "Unknown";
+      lines.push(`  \u2022 ${name}: ${r.startTime}\u2013${r.endTime}`);
+    });
+  }
+  return lines.join("\\n");
+}
+function generateICS(staffMember, weekDates, schedule, locName, allStaff) {
   const uid_base = staffMember.id + "-" + Date.now();
   let events = "";
   weekDates.forEach((date,di) => {
@@ -150,13 +165,14 @@ function generateICS(staffMember, weekDates, schedule, locName) {
       const dtend   = toICSDate(date, block.endTime);
       const uid     = `${uid_base}-${di}-${bi}@kcchildcare`;
       const created = new Date().toISOString().replace(/[-:.]/g,"").slice(0,15)+"Z";
+      const desc    = buildICSDescription(staffMember, block, allStaff);
       events += `BEGIN:VEVENT
 UID:${uid}
 DTSTAMP:${created}
 DTSTART:${dtstart}
 DTEND:${dtend}
-SUMMARY:${block.room} — ${locName}
-DESCRIPTION:${staffMember.name} · ${block.startTime} to ${block.endTime}
+SUMMARY:${block.room} \u2014 ${locName}
+DESCRIPTION:${desc}
 LOCATION:${locName}
 END:VEVENT
 `;
@@ -665,7 +681,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
   };
 
   const handleDownloadICS = (s) => {
-    const ics = generateICS(s, weekDates, schedule, loc.name);
+    const ics = generateICS(s, weekDates, schedule, loc.name, staff);
     downloadICS(ics, `${s.name.replace(/\s+/g,"-")}-schedule-${weekStart.toISOString().slice(0,10)}.ics`);
     showToast(`📅 Calendar file downloaded for ${s.name}`);
   };
