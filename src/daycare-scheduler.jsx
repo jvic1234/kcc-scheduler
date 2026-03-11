@@ -19,6 +19,17 @@ function generateTimes() {
 }
 const TIMES = generateTimes();
 
+const TL_START = 330;  // 5:30 AM in minutes
+const TL_END   = 1110; // 6:30 PM in minutes
+const TL_RANGE = TL_END - TL_START;
+
+function minsToTime(m) {
+  m = Math.max(TL_START, Math.min(TL_END, Math.round(m/15)*15));
+  const h24=Math.floor(m/60), min=m%60;
+  const h12=h24>12?h24-12:h24===0?12:h24;
+  return `${h12}:${min.toString().padStart(2,"0")} ${h24<12?"AM":"PM"}`;
+}
+
 const COLOR_PALETTE = [
   { bg:"#FFF0EB", border:"#FF8A65", text:"#D84315", dot:"#FF8A65" },
   { bg:"#E8F5F3", border:"#4DB6AC", text:"#00695C", dot:"#4DB6AC" },
@@ -103,6 +114,12 @@ function timeToMins(t) {
 function blockMins(b)  { return Math.max(0, timeToMins(b.endTime)-timeToMins(b.startTime)); }
 function dayMins(blks) { return (blks||[]).filter(b=>!HOURS_EXCLUDED_ROOMS.has(b.room)).reduce((s,b)=>s+blockMins(b),0); }
 function fmtHours(m)   { if(!m)return"—"; const h=Math.floor(m/60),mn=m%60; return mn?`${h}h ${mn}m`:`${h}h`; }
+function sortBlocks(blks) {
+  return [...blks].sort((a,b)=>{
+    if(!a.startTime)return 1; if(!b.startTime)return -1;
+    return timeToMins(a.startTime)-timeToMins(b.startTime);
+  });
+}
 function hasOverlap(blocks) {
   const v=blocks.filter(b=>b.room&&b.startTime&&b.endTime);
   for(let i=0;i<v.length;i++) for(let j=i+1;j<v.length;j++){
@@ -204,6 +221,10 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
 
   const calRef          = useRef(null);
   const isRemoteUpdate  = useRef(false);
+  const tlRef           = useRef(null);
+  const tlDragRef       = useRef(null);
+  const tlHandlerRef    = useRef({});
+  const [tlPreview,     setTlPreview]  = useState(null);
   const weekDates = getWeekDates(weekStart);
   const wiso      = weekStart.toISOString();
 
@@ -274,6 +295,70 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
     },700);
     return()=>clearTimeout(t);
   },[locations,activeLocId,attendance,loaded]);
+
+  // ── Timeline drag handlers ─────────────────────────────────────────────────
+  const onTlMouseDown = (e) => {
+    if(e.button!==0)return;
+    e.preventDefault();
+    const rect=tlRef.current.getBoundingClientRect();
+    const x=e.clientX-rect.left;
+    const raw=x/rect.width*TL_RANGE+TL_START;
+    const snapped=Math.max(TL_START,Math.min(TL_END,Math.round(raw/15)*15));
+    const EDGE=8;
+    for(const b of editBlocks){
+      if(!b.startTime||!b.endTime)continue;
+      const bs=timeToMins(b.startTime),be=timeToMins(b.endTime);
+      const bL=(bs-TL_START)/TL_RANGE*rect.width, bR=(be-TL_START)/TL_RANGE*rect.width;
+      if(x>=bL&&x<=bR){
+        if(x<=bL+EDGE)      tlDragRef.current={type:'resize-s',id:b.id,origStart:bs,origEnd:be,anchor:snapped};
+        else if(x>=bR-EDGE) tlDragRef.current={type:'resize-e',id:b.id,origStart:bs,origEnd:be,anchor:snapped};
+        else                tlDragRef.current={type:'move',id:b.id,origStart:bs,origEnd:be,anchor:snapped};
+        return;
+      }
+    }
+    const tempId=Date.now()+Math.random();
+    tlDragRef.current={type:'new',anchor:snapped,tempId};
+    setTlPreview({isNew:true,id:tempId,startTime:minsToTime(snapped),endTime:minsToTime(Math.min(snapped+60,TL_END))});
+  };
+  tlHandlerRef.current.move = (e) => {
+    const drag=tlDragRef.current; if(!drag)return;
+    const rect=tlRef.current?.getBoundingClientRect(); if(!rect)return;
+    const x=Math.max(0,Math.min(rect.width,e.clientX-rect.left));
+    const snapped=Math.max(TL_START,Math.min(TL_END,Math.round((x/rect.width*TL_RANGE+TL_START)/15)*15));
+    if(drag.type==='new'){
+      const s=Math.min(drag.anchor,snapped),ev=Math.max(drag.anchor,snapped);
+      if(ev>s) setTlPreview({isNew:true,id:drag.tempId,startTime:minsToTime(s),endTime:minsToTime(ev)});
+    } else if(drag.type==='resize-s'){
+      setTlPreview({id:drag.id,startTime:minsToTime(Math.min(snapped,drag.origEnd-15)),endTime:minsToTime(drag.origEnd)});
+    } else if(drag.type==='resize-e'){
+      setTlPreview({id:drag.id,startTime:minsToTime(drag.origStart),endTime:minsToTime(Math.max(snapped,drag.origStart+15))});
+    } else if(drag.type==='move'){
+      const delta=snapped-drag.anchor, dur=drag.origEnd-drag.origStart;
+      let ns=drag.origStart+delta, ne=drag.origEnd+delta;
+      if(ns<TL_START){ns=TL_START;ne=TL_START+dur;} if(ne>TL_END){ne=TL_END;ns=TL_END-dur;}
+      setTlPreview({id:drag.id,startTime:minsToTime(ns),endTime:minsToTime(ne)});
+    }
+  };
+  tlHandlerRef.current.up = () => {
+    const drag=tlDragRef.current;
+    if(drag && tlPreview){
+      if(drag.type==='new'&&tlPreview.isNew){
+        const nb={...newBlock(tlPreview.startTime,tlPreview.endTime,''),id:drag.tempId};
+        setEditBlocks(prev=>sortBlocks([...prev,nb]));
+      } else if(drag.type!=='new'){
+        setEditBlocks(prev=>sortBlocks(prev.map(b=>b.id===drag.id?{...b,startTime:tlPreview.startTime,endTime:tlPreview.endTime}:b)));
+      }
+    }
+    tlDragRef.current=null; setTlPreview(null);
+  };
+  useEffect(()=>{
+    if(!editCell)return;
+    const mv=e=>tlHandlerRef.current.move?.(e);
+    const up=e=>tlHandlerRef.current.up?.(e);
+    document.addEventListener('mousemove',mv);
+    document.addEventListener('mouseup',up);
+    return()=>{ document.removeEventListener('mousemove',mv); document.removeEventListener('mouseup',up); };
+  },[editCell]);
 
   // ── Calendar click-outside ─────────────────────────────────────────────────
   useEffect(()=>{
@@ -443,10 +528,10 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
     delete ns[cellKey(editCell.sId,editCell.dayIdx)];
     setSchedule(ns); setEditCell(null);
   };
-  const updateBlock       = (id,f,v)  => setEditBlocks(editBlocks.map(b=>b.id===id?{...b,[f]:v}:b));
-  const updateBlockFields = (id,flds) => setEditBlocks(editBlocks.map(b=>b.id===id?{...b,...flds}:b));
+  const updateBlock       = (id,f,v)  => setEditBlocks(prev=>{ const u=prev.map(b=>b.id===id?{...b,[f]:v}:b); return f==='startTime'?sortBlocks(u):u; });
+  const updateBlockFields = (id,flds) => setEditBlocks(prev=>{ const u=prev.map(b=>b.id===id?{...b,...flds}:b); return 'startTime' in flds?sortBlocks(u):u; });
   const removeBlock = id => setEditBlocks(editBlocks.filter(b=>b.id!==id));
-  const addBlock    = () => { const l=editBlocks[editBlocks.length-1]; setEditBlocks([...editBlocks,newBlock(l?.endTime||"8:00 AM","4:00 PM","")]); };
+  const addBlock    = () => { const l=editBlocks[editBlocks.length-1]; setEditBlocks(sortBlocks([...editBlocks,newBlock(l?.endTime||"8:00 AM","4:00 PM","")])); };
   const moveBlock   = (i,dir) => { const a=[...editBlocks],sw=i+dir; if(sw<0||sw>=a.length)return; [a[i],a[sw]]=[a[sw],a[i]]; setEditBlocks(a); };
 
   // ── Staff ──────────────────────────────────────────────────────────────────
@@ -942,6 +1027,48 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
               <span style={{fontSize:18}}>⚠️</span>
               <span style={{fontSize:13,fontWeight:700,color:"#856404"}}>Two or more blocks overlap — please check your start and end times.</span>
             </div>}
+
+            <div style={{marginBottom:14,background:"#F8FAFC",borderRadius:12,padding:"10px 12px",border:"1.5px solid #E2E8F0"}}>
+              <div style={{fontSize:9.5,fontWeight:800,color:"#94A3B8",letterSpacing:"0.6px",marginBottom:7}}>DRAG TO SET TIMES &nbsp;·&nbsp; DRAG EDGES TO RESIZE &nbsp;·&nbsp; DRAG BODY TO MOVE &nbsp;·&nbsp; CLICK EMPTY SPACE TO ADD BLOCK</div>
+              <div ref={tlRef} onMouseDown={onTlMouseDown}
+                style={{position:"relative",height:44,borderRadius:8,background:"white",border:"1.5px solid #E2E8F0",cursor:"crosshair",userSelect:"none"}}>
+                {Array.from({length:13},(_,i)=>i+6).map(h=>{
+                  const pct=(h*60-TL_START)/TL_RANGE*100;
+                  if(pct<0||pct>100)return null;
+                  return <div key={h} style={{position:"absolute",left:`${pct}%`,top:0,bottom:0,borderLeft:`1px solid ${h%6===0?"#CBD5E1":"#F1F5F9"}`,pointerEvents:"none"}}/>;
+                })}
+                {editBlocks.map(b=>{
+                  const prev=tlPreview&&!tlPreview.isNew&&tlPreview.id===b.id?tlPreview:null;
+                  const st=prev?.startTime||b.startTime, et=prev?.endTime||b.endTime;
+                  if(!st||!et)return null;
+                  const ls=timeToMins(st),le=timeToMins(et);
+                  const left=(ls-TL_START)/TL_RANGE*100, width=(le-ls)/TL_RANGE*100;
+                  const cv=rc(b.room);
+                  return(
+                    <div key={b.id} style={{position:"absolute",top:4,height:36,left:`${Math.max(0,left)}%`,width:`${Math.max(0.5,width)}%`,background:cv.bg,border:`2px solid ${cv.border}`,borderRadius:6,overflow:"hidden",display:"flex",alignItems:"center",justifyContent:"center",pointerEvents:"none",zIndex:1}}>
+                      <span style={{fontSize:9,fontWeight:800,color:cv.text,overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis",padding:"0 8px"}}>{b.room||"?"}</span>
+                      <div style={{position:"absolute",left:0,top:0,width:7,height:"100%",background:`${cv.border}50`,borderRadius:"4px 0 0 4px"}}/>
+                      <div style={{position:"absolute",right:0,top:0,width:7,height:"100%",background:`${cv.border}50`,borderRadius:"0 4px 4px 0"}}/>
+                    </div>
+                  );
+                })}
+                {tlPreview?.isNew&&(()=>{
+                  const ls=timeToMins(tlPreview.startTime),le=timeToMins(tlPreview.endTime);
+                  const left=(ls-TL_START)/TL_RANGE*100, width=(le-ls)/TL_RANGE*100;
+                  return <div style={{position:"absolute",top:4,height:36,left:`${Math.max(0,left)}%`,width:`${Math.max(0.5,width)}%`,background:"#DCFCE7",border:"2px dashed #40916C",borderRadius:6,pointerEvents:"none",zIndex:2,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                    <span style={{fontSize:9,fontWeight:800,color:"#2D6A4F"}}>New</span>
+                  </div>;
+                })()}
+              </div>
+              <div style={{position:"relative",height:14,marginTop:3}}>
+                {[6,7,8,9,10,11,12,13,14,15,16,17,18].map(h=>{
+                  const pct=(h*60-TL_START)/TL_RANGE*100;
+                  if(pct<0||pct>100)return null;
+                  const lbl=h===12?"12p":h>12?`${h-12}p`:`${h}a`;
+                  return <span key={h} style={{position:"absolute",left:`${pct}%`,transform:"translateX(-50%)",fontSize:9,color:"#94A3B8",fontWeight:700}}>{lbl}</span>;
+                })}
+              </div>
+            </div>
 
             <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:14}}>
               {editBlocks.map((block,idx)=>{
