@@ -241,6 +241,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
   const tlDragRef       = useRef(null);
   const tlHandlerRef    = useRef({});
   const [tlPreview,     setTlPreview]  = useState(null);
+  const [tlTooltip,     setTlTooltip]  = useState(null); // {x, label, type}
   const weekDates = getWeekDates(weekStart);
   const wiso      = weekStart.toISOString();
 
@@ -313,34 +314,42 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
   },[locations,activeLocId,attendance,loaded]);
 
   // ── Timeline drag handlers ─────────────────────────────────────────────────
+  const tlTooltipLabel = (drag, snapped) => {
+    if(!drag) return null;
+    if(drag.type==='new'){ const s=Math.min(drag.anchor,snapped),ev=Math.max(drag.anchor,snapped); return ev>s?`${minsToTime(s)} → ${minsToTime(ev)}`:minsToTime(s); }
+    if(drag.type==='resize-s') return `Start: ${minsToTime(Math.min(snapped,drag.origEnd-15))}`;
+    if(drag.type==='resize-e') return `End: ${minsToTime(Math.max(snapped,drag.origStart+15))}`;
+    if(drag.type==='move'){ const d=snapped-drag.anchor,dur=drag.origEnd-drag.origStart; let ns=drag.origStart+d,ne=drag.origEnd+d; if(ns<TL_START){ns=TL_START;ne=TL_START+dur;} if(ne>TL_END){ne=TL_END;ns=TL_END-dur;} return `${minsToTime(ns)} → ${minsToTime(ne)}`; }
+  };
   const onTlMouseDown = (e) => {
     if(e.button!==0)return;
     e.preventDefault();
     const rect=tlRef.current.getBoundingClientRect();
     const x=e.clientX-rect.left;
-    const raw=x/rect.width*TL_RANGE+TL_START;
-    const snapped=Math.max(TL_START,Math.min(TL_END,Math.round(raw/15)*15));
-    const EDGE=8;
+    const snapped=Math.max(TL_START,Math.min(TL_END,Math.round((x/rect.width*TL_RANGE+TL_START)/15)*15));
+    const EDGE=10;
     for(const b of editBlocks){
       if(!b.startTime||!b.endTime)continue;
       const bs=timeToMins(b.startTime),be=timeToMins(b.endTime);
       const bL=(bs-TL_START)/TL_RANGE*rect.width, bR=(be-TL_START)/TL_RANGE*rect.width;
       if(x>=bL&&x<=bR){
-        if(x<=bL+EDGE)      tlDragRef.current={type:'resize-s',id:b.id,origStart:bs,origEnd:be,anchor:snapped};
-        else if(x>=bR-EDGE) tlDragRef.current={type:'resize-e',id:b.id,origStart:bs,origEnd:be,anchor:snapped};
-        else                tlDragRef.current={type:'move',id:b.id,origStart:bs,origEnd:be,anchor:snapped};
+        const type=x<=bL+EDGE?'resize-s':x>=bR-EDGE?'resize-e':'move';
+        tlDragRef.current={type,id:b.id,origStart:bs,origEnd:be,anchor:snapped};
+        setTlTooltip({x,label:tlTooltipLabel(tlDragRef.current,snapped),type});
         return;
       }
     }
     const tempId=Date.now()+Math.random();
     tlDragRef.current={type:'new',anchor:snapped,tempId};
     setTlPreview({isNew:true,id:tempId,startTime:minsToTime(snapped),endTime:minsToTime(Math.min(snapped+60,TL_END))});
+    setTlTooltip({x,label:minsToTime(snapped),type:'new'});
   };
   tlHandlerRef.current.move = (e) => {
     const drag=tlDragRef.current; if(!drag)return;
     const rect=tlRef.current?.getBoundingClientRect(); if(!rect)return;
     const x=Math.max(0,Math.min(rect.width,e.clientX-rect.left));
     const snapped=Math.max(TL_START,Math.min(TL_END,Math.round((x/rect.width*TL_RANGE+TL_START)/15)*15));
+    setTlTooltip({x,label:tlTooltipLabel(drag,snapped),type:drag.type});
     if(drag.type==='new'){
       const s=Math.min(drag.anchor,snapped),ev=Math.max(drag.anchor,snapped);
       if(ev>s) setTlPreview({isNew:true,id:drag.tempId,startTime:minsToTime(s),endTime:minsToTime(ev)});
@@ -365,7 +374,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
         setEditBlocks(prev=>sortBlocks(prev.map(b=>b.id===drag.id?{...b,startTime:tlPreview.startTime,endTime:tlPreview.endTime}:b)));
       }
     }
-    tlDragRef.current=null; setTlPreview(null);
+    tlDragRef.current=null; setTlPreview(null); setTlTooltip(null);
   };
   useEffect(()=>{
     if(!editCell)return;
@@ -1044,39 +1053,55 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
               <span style={{fontSize:13,fontWeight:700,color:"#856404"}}>Two or more blocks overlap — please check your start and end times.</span>
             </div>}
 
-            <div style={{marginBottom:14,background:"#F8FAFC",borderRadius:12,padding:"10px 12px",border:"1.5px solid #E2E8F0"}}>
-              <div style={{fontSize:9.5,fontWeight:800,color:"#94A3B8",letterSpacing:"0.6px",marginBottom:7}}>DRAG TO SET TIMES &nbsp;·&nbsp; DRAG EDGES TO RESIZE &nbsp;·&nbsp; DRAG BODY TO MOVE &nbsp;·&nbsp; CLICK EMPTY SPACE TO ADD BLOCK</div>
-              <div ref={tlRef} onMouseDown={onTlMouseDown}
-                style={{position:"relative",height:44,borderRadius:8,background:"white",border:"1.5px solid #E2E8F0",cursor:"crosshair",userSelect:"none"}}>
-                {Array.from({length:13},(_,i)=>i+6).map(h=>{
-                  const pct=(h*60-TL_START)/TL_RANGE*100;
-                  if(pct<0||pct>100)return null;
-                  return <div key={h} style={{position:"absolute",left:`${pct}%`,top:0,bottom:0,borderLeft:`1px solid ${h%6===0?"#CBD5E1":"#F1F5F9"}`,pointerEvents:"none"}}/>;
-                })}
-                {editBlocks.map(b=>{
-                  const prev=tlPreview&&!tlPreview.isNew&&tlPreview.id===b.id?tlPreview:null;
-                  const st=prev?.startTime||b.startTime, et=prev?.endTime||b.endTime;
-                  if(!st||!et)return null;
-                  const ls=timeToMins(st),le=timeToMins(et);
-                  const left=(ls-TL_START)/TL_RANGE*100, width=(le-ls)/TL_RANGE*100;
-                  const cv=rc(b.room);
-                  return(
-                    <div key={b.id} style={{position:"absolute",top:4,height:36,left:`${Math.max(0,left)}%`,width:`${Math.max(0.5,width)}%`,background:cv.bg,border:`2px solid ${cv.border}`,borderRadius:6,overflow:"hidden",display:"flex",alignItems:"center",justifyContent:"center",pointerEvents:"none",zIndex:1}}>
-                      <span style={{fontSize:9,fontWeight:800,color:cv.text,overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis",padding:"0 8px"}}>{b.room||"?"}</span>
-                      <div style={{position:"absolute",left:0,top:0,width:7,height:"100%",background:`${cv.border}50`,borderRadius:"4px 0 0 4px"}}/>
-                      <div style={{position:"absolute",right:0,top:0,width:7,height:"100%",background:`${cv.border}50`,borderRadius:"0 4px 4px 0"}}/>
-                    </div>
-                  );
-                })}
-                {tlPreview?.isNew&&(()=>{
-                  const ls=timeToMins(tlPreview.startTime),le=timeToMins(tlPreview.endTime);
-                  const left=(ls-TL_START)/TL_RANGE*100, width=(le-ls)/TL_RANGE*100;
-                  return <div style={{position:"absolute",top:4,height:36,left:`${Math.max(0,left)}%`,width:`${Math.max(0.5,width)}%`,background:"#DCFCE7",border:"2px dashed #40916C",borderRadius:6,pointerEvents:"none",zIndex:2,display:"flex",alignItems:"center",justifyContent:"center"}}>
-                    <span style={{fontSize:9,fontWeight:800,color:"#2D6A4F"}}>New</span>
-                  </div>;
-                })()}
+            <div style={{marginBottom:14,background:"#F8FAFC",borderRadius:12,padding:"12px 14px 10px",border:"1.5px solid #E2E8F0",userSelect:"none"}}>
+              <div style={{fontSize:9.5,fontWeight:800,color:"#94A3B8",letterSpacing:"0.6px",marginBottom:8}}>DRAG EMPTY SPACE TO CREATE &nbsp;·&nbsp; DRAG BODY TO MOVE &nbsp;·&nbsp; DRAG EDGES TO RESIZE</div>
+              <div onMouseMove={e=>tlHandlerRef.current.move?.(e)} onMouseUp={()=>tlHandlerRef.current.up?.()} onMouseLeave={()=>tlHandlerRef.current.up?.()} style={{position:"relative"}}>
+                <div ref={tlRef} onMouseDown={onTlMouseDown}
+                  style={{position:"relative",height:56,borderRadius:10,background:"white",border:"1.5px solid #E2E8F0",cursor:"crosshair",overflow:"visible"}}>
+                  {[6,7,8,9,10,11,12,13,14,15,16,17,18].map(h=>{
+                    const pct=(h*60-TL_START)/TL_RANGE*100;
+                    if(pct<0||pct>100)return null;
+                    return <div key={h} style={{position:"absolute",left:`${pct}%`,top:0,bottom:0,borderLeft:`1px solid ${h%6===0?"#CBD5E1":"#F1F5F9"}`,pointerEvents:"none"}}/>;
+                  })}
+                  {editBlocks.map(b=>{
+                    const prev=tlPreview&&!tlPreview.isNew&&tlPreview.id===b.id?tlPreview:null;
+                    const st=prev?.startTime||b.startTime, et=prev?.endTime||b.endTime;
+                    if(!st||!et)return null;
+                    const ls=timeToMins(st),le=timeToMins(et);
+                    const left=(ls-TL_START)/TL_RANGE*100, width=(le-ls)/TL_RANGE*100;
+                    const cv=rc(b.room);
+                    return(
+                      <div key={b.id} style={{position:"absolute",top:4,height:48,left:`${Math.max(0,left)}%`,width:`${Math.max(0.5,width)}%`,background:cv.bg,border:`2px solid ${cv.border}`,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",pointerEvents:"none",zIndex:2,overflow:"hidden"}}>
+                        <div style={{position:"absolute",left:0,top:0,width:8,height:"100%",background:`${cv.border}55`,borderRadius:"5px 0 0 5px"}}/>
+                        <span style={{fontSize:9,fontWeight:800,color:cv.text,padding:"0 12px",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{b.room||"?"}</span>
+                        <div style={{position:"absolute",right:0,top:0,width:8,height:"100%",background:`${cv.border}55`,borderRadius:"0 5px 5px 0"}}/>
+                      </div>
+                    );
+                  })}
+                  {tlPreview?.isNew&&(()=>{
+                    const ls=timeToMins(tlPreview.startTime),le=timeToMins(tlPreview.endTime);
+                    const left=(ls-TL_START)/TL_RANGE*100, width=(le-ls)/TL_RANGE*100;
+                    return <div style={{position:"absolute",top:4,height:48,left:`${Math.max(0,left)}%`,width:`${Math.max(0.5,width)}%`,background:"#DCFCE7",border:"2px dashed #40916C",borderRadius:7,pointerEvents:"none",zIndex:3,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                      <span style={{fontSize:9,fontWeight:800,color:"#2D6A4F"}}>New</span>
+                    </div>;
+                  })()}
+                  {tlTooltip?.label&&(()=>{
+                    const TIPW=170;
+                    const trackW=tlRef.current?.getBoundingClientRect()?.width||500;
+                    const cx=Math.max(TIPW/2+4,Math.min(trackW-TIPW/2-4,tlTooltip.x));
+                    const TC={'new':{bg:"#1B4332",accent:"#86EFAC",lbl:"NEW"},'move':{bg:"#1E3A8A",accent:"#93C5FD",lbl:"MOVE"},'resize-s':{bg:"#7C2D12",accent:"#FCA5A5",lbl:"START"},'resize-e':{bg:"#7C2D12",accent:"#FCA5A5",lbl:"END"}};
+                    const tc=TC[tlTooltip.type]||TC['move'];
+                    return(
+                      <div style={{position:"absolute",left:cx,top:-50,transform:"translateX(-50%)",background:tc.bg,color:"white",padding:"6px 12px",borderRadius:9,whiteSpace:"nowrap",pointerEvents:"none",zIndex:30,boxShadow:"0 6px 20px rgba(0,0,0,0.28)",display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:700}}>
+                        <span style={{fontSize:9,fontWeight:900,color:tc.accent,letterSpacing:"0.5px",background:"rgba(255,255,255,0.12)",padding:"2px 5px",borderRadius:4}}>{tc.lbl}</span>
+                        {tlTooltip.label}
+                        <div style={{position:"absolute",bottom:-6,left:"50%",transform:"translateX(-50%)",width:0,height:0,borderLeft:"6px solid transparent",borderRight:"6px solid transparent",borderTop:`6px solid ${tc.bg}`}}/>
+                      </div>
+                    );
+                  })()}
+                </div>
               </div>
-              <div style={{position:"relative",height:14,marginTop:3}}>
+              <div style={{position:"relative",height:16,marginTop:5}}>
                 {[6,7,8,9,10,11,12,13,14,15,16,17,18].map(h=>{
                   const pct=(h*60-TL_START)/TL_RANGE*100;
                   if(pct<0||pct>100)return null;
