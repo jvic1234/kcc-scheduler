@@ -76,12 +76,17 @@ export default async function handler(req, res) {
           (cell?.blocks || []).filter(b => b.room && b.startTime && b.endTime).forEach((block, bi) => {
             const uid  = staffId + "-" + weekIso + "-" + dayIdx + "-" + bi + "@kcchildcare";
             const desc = buildDescription(staffMember, block, allStaff);
+            const reliefs = (block.reliefs || []).filter(r => r.staffId && r.startTime && r.endTime);
+            const reliefNames = reliefs.map(r => (allStaff.find(s => String(s.id) === String(r.staffId))?.name || "").split(" ")[0]).filter(Boolean);
+            const summary = reliefNames.length > 0
+              ? block.room + " \u2014 covered by " + reliefNames.join(" & ")
+              : block.room;
             events += "BEGIN:VEVENT\r\n";
             events += "UID:" + uid + "\r\n";
             events += "DTSTAMP:" + now + "\r\n";
             events += "DTSTART:" + toICSDate(date, block.startTime) + "\r\n";
             events += "DTEND:"   + toICSDate(date, block.endTime)   + "\r\n";
-            events += "SUMMARY:" + block.room + " \u2014 " + locName + "\r\n";
+            events += "SUMMARY:" + summary + "\r\n";
             events += "DESCRIPTION:" + desc + "\r\n";
             events += "LOCATION:" + locName + "\r\n";
             events += "END:VEVENT\r\n";
