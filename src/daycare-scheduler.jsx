@@ -326,28 +326,51 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
     })();
   },[]);
 
-  // ── One-time cleanup: prune orphan lunch blocks on first load ──────────────
+  // ── One-time cleanup: prune orphan lunch blocks + stamp missing reliefFor ──
   const cleanupRanRef = useRef(false);
   useEffect(()=>{
     if(!loaded||cleanupRanRef.current) return;
     cleanupRanRef.current=true;
-    // Run reconcile across all locations to remove duplicate/orphan lunch blocks
     setLocations(prev=>prev.map(loc=>{
       const cleaned={...loc.schedule};
-      // Build a fake ns keyed by full wiso|staffId|dayIdx
-      // We can't use wiso here (it's the current week) so we scan all keys
       const keys=Object.keys(cleaned);
-      const staffIds=new Set(loc.staff.map(s=>String(s.id)));
+
+      // Pass 1: build covererMap from reliefs[] on all lunch blocks
+      // covererStaffId+dayKey → ownerStaffId
+      const covererMap={};
+      keys.forEach(key=>{
+        const [wisoStr,ownerId,dayStr]=key.split('|');
+        (cleaned[key]?.blocks||[]).forEach(b=>{
+          if(b.room!=='Lunch / Break') return;
+          (b.reliefs||[]).forEach(r=>{
+            if(r.staffId) covererMap[`${wisoStr}|${r.staffId}|${dayStr}`]=String(ownerId);
+          });
+        });
+      });
+
+      // Pass 2: stamp reliefFor on any coverer block that's missing it
       keys.forEach(key=>{
         if(!cleaned[key]?.blocks) return;
-        const allLunch=cleaned[key].blocks.filter(b=>b.room==="Lunch / Break");
+        const ownerStaffId=covererMap[key];
+        if(!ownerStaffId) return;
+        cleaned[key]={...cleaned[key],blocks:cleaned[key].blocks.map(b=>{
+          if(b.reliefFor||HOURS_EXCLUDED_ROOMS.has(b.room)||!b.room) return b;
+          return {...b,reliefFor:ownerStaffId};
+        })};
+      });
+
+      // Pass 3: prune orphan lunch blocks (empty duplicates)
+      keys.forEach(key=>{
+        if(!cleaned[key]?.blocks) return;
+        const allLunch=cleaned[key].blocks.filter(b=>b.room==='Lunch / Break');
         if(allLunch.length<=1) return;
         const hasPopulated=allLunch.some(b=>(b.reliefs||[]).length>0);
         if(!hasPopulated) return;
         cleaned[key]={...cleaned[key],blocks:cleaned[key].blocks.filter(b=>
-          b.room!=="Lunch / Break"||(b.reliefs||[]).length>0
+          b.room!=='Lunch / Break'||(b.reliefs||[]).length>0
         )};
       });
+
       return {...loc,schedule:cleaned};
     }));
   },[loaded]);
@@ -1103,11 +1126,32 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
         const roomStaffMap = {};
         orderedRooms.forEach(room=>{
           const raw=[];
+
+          // Build a lookup: staffId → set of reliefBlockIds they are covering (from lunch blocks)
+          // This handles data where reliefFor wasn't stamped on the coverer's block
+          const reliefCovererMap={}; // covererStaffId → { reliefFor: ownerStaffId }
+          staff.forEach(owner=>{
+            (getCellData(owner.id,clampedInsightDayIdx)?.blocks||[]).forEach(lb=>{
+              if(!IS_LUNCH_ROOM(lb.room||'')) return;
+              (lb.reliefs||[]).forEach(r=>{
+                if(r.staffId) reliefCovererMap[String(r.staffId)]={reliefFor:owner.id};
+              });
+            });
+          });
+
           staff.forEach((s,si)=>{
             (getCellData(s.id,clampedInsightDayIdx)?.blocks||[]).forEach(b=>{
-              if(b.room===room.name&&b.startTime&&b.endTime)
+              if(b.room===room.name&&b.startTime&&b.endTime){
+                // Determine reliefFor — prefer explicit field, fall back to lunch-block lookup
+                const explicitRelief=b.reliefFor||null;
+                const inferredRelief=!explicitRelief?reliefCovererMap[String(s.id)]?.reliefFor:null;
+                const resolvedReliefFor=explicitRelief||inferredRelief||null;
                 raw.push({staffId:s.id,name:s.name,si,startTime:b.startTime,endTime:b.endTime,
-                  blockId:b.id,isRelief:!!b.reliefFor,reliefFor:b.reliefFor||null,reliefNote:b.reliefNote||''});
+                  blockId:b.id,
+                  isRelief:!!(resolvedReliefFor),
+                  reliefFor:resolvedReliefFor,
+                  reliefNote:b.reliefNote||''});
+              }
             });
           });
           roomStaffMap[room.name]=buildLanes(raw);
@@ -1264,7 +1308,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                           const gTop=BLOCK_PAD+gap.lane*(BLOCK_H+BLOCK_PAD);
                           return(
                             <div key={gi}
-                              onClick={()=>{ setShowInsights(false); setTimeout(()=>openEdit(gap.staffId,clampedInsightDayIdx),80); }}
+                              onClick={()=>{ openEdit(gap.staffId,clampedInsightDayIdx); }}
                               title={gap.hasRelief?`${gap.name.split(" ")[0]}'s lunch — relief assigned`:`Click to assign relief for ${gap.name.split(" ")[0]}'s lunch`}
                               style={{position:"absolute",left:`${gLeft}%`,width:`${gWidth}%`,top:gTop,height:BLOCK_H,
                                 border:`2px dashed ${gap.hasRelief?"#86EFAC":"#FCD34D"}`,borderRadius:7,
@@ -1330,7 +1374,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                                 // Only fire click if no drag happened
                                 if(insDragPreview) return;
                                 e.stopPropagation();
-                                setShowInsights(false); setTimeout(()=>openEdit(rb.staffId,clampedInsightDayIdx),80);
+                                setShowInsights(true); openEdit(rb.staffId,clampedInsightDayIdx);
                               }}>
                               {/* Left resize handle */}
                               <div style={{width:8,height:"100%",cursor:"ew-resize",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",opacity:0.4}}>
