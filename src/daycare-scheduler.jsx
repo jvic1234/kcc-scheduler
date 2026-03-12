@@ -234,10 +234,10 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
   const [editingLocName,   setEditingLocName]   = useState("");
   const [showCalendar,     setShowCalendar]     = useState(false);
   const [calViewMonth,     setCalViewMonth]     = useState(()=>{ const n=new Date(); return new Date(n.getFullYear(),n.getMonth(),1); });
-  const [showLunchOverview,setShowLunchOverview]= useState(false);
   const [showInsights,     setShowInsights]     = useState(false);
   const [insightDayIdx,    setInsightDayIdx]    = useState(()=>{ const t=new Date(); const d=t.getDay(); return d===0?6:d-1; });
-  const [insightRoomFilter,setInsightRoomFilter]= useState(null);
+  const [insightRoomFilter,setInsightRoomFilter]= useState(null); // Set of hidden room names
+  const [insightRoomOrder, setInsightRoomOrder] = useState(null); // null = use rooms order
 
   const calRef          = useRef(null);
   const isRemoteUpdate  = useRef(false);
@@ -854,133 +854,45 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
           </span>
         ); })}
         <div style={{marginLeft:"auto",display:"flex",gap:8}}>
-          <button onClick={()=>setShowLunchOverview(true)} style={{background:"white",color:"#B45309",border:"2px solid #F59E0B",borderRadius:10,padding:"7px 14px",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>🍽 Lunch Overview</button>
           <button onClick={()=>setShowInsights(true)} style={{background:"white",color:"#6D28D9",border:"2px solid #7C3AED",borderRadius:10,padding:"7px 14px",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>📊 Insights</button>
           <button onClick={()=>setShowManageRooms(true)} style={{background:"white",color:"#2D6A4F",border:"2px solid #40916C",borderRadius:10,padding:"7px 14px",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>🏠 Edit Spaces</button>
           <button onClick={()=>setShowAddStaff(true)} style={{background:`linear-gradient(135deg,${locColor},${locColor}cc)`,color:"white",border:"none",borderRadius:10,padding:"7px 16px",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit",boxShadow:"0 2px 8px rgba(0,0,0,0.2)"}}>+ Add Staff</button>
         </div>
       </div>
 
-      {/* ── LUNCH OVERVIEW VIEW ── */}
-      {showLunchOverview&&(()=>{
-        const IS_LUNCH = r => HOURS_EXCLUDED_ROOMS.has(r) && r !== "Vacation";
-        const getFreeStaff = (dayIdx, lStart, lEnd, excludeId) => {
-          const ls=timeToMins(lStart), le=timeToMins(lEnd);
-          return staff.filter(s=>{
-            if(String(s.id)===String(excludeId)) return false;
-            const blocks=(getCellData(s.id,dayIdx)?.blocks||[]);
-            const working=blocks.some(b=>b.startTime&&b.endTime&&!IS_LUNCH(b.room||"")&&(b.room||"")!=="Vacation"&&timeToMins(b.startTime)<le&&timeToMins(b.endTime)>ls);
-            if(!working) return false;
-            const busy=blocks.some(b=>b.startTime&&b.endTime&&timeToMins(b.startTime)<le&&timeToMins(b.endTime)>ls&&(IS_LUNCH(b.room||"")||(b.reliefs||[]).some(r=>timeToMins(r.startTime)<le&&timeToMins(r.endTime)>ls)));
-            return !busy;
-          });
-        };
-        const staffWithLunch = staff.filter(s=>weekDates.some((_,di)=>(getCellData(s.id,di)?.blocks||[]).some(b=>IS_LUNCH(b.room||""))));
-        return(
-          <div style={{padding:"20px 28px"}}>
-            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:18}}>
-              <button onClick={()=>setShowLunchOverview(false)} style={{background:"#F1F5F9",border:"none",borderRadius:9,padding:"7px 14px",fontSize:12,fontWeight:800,color:"#475569",cursor:"pointer",fontFamily:"inherit"}}>← Back to Schedule</button>
-              <div style={{fontWeight:900,fontSize:20,color:"#1E293B"}}>🍽 Lunch Break Overview</div>
-              <div style={{fontSize:12,color:"#64748B",fontWeight:600}}>{weekLabel}</div>
-            </div>
-            <div style={{background:"white",borderRadius:18,boxShadow:"0 2px 20px rgba(0,0,0,0.07)",overflow:"hidden"}}>
-              <table style={{width:"100%",borderCollapse:"collapse"}}>
-                <thead>
-                  <tr>
-                    <th style={{background:"#1E3A8A",padding:"13px 16px",textAlign:"left",color:"white",fontSize:12,fontWeight:800,width:160}}>STAFF MEMBER</th>
-                    {weekDates.map((date,i)=>{ const isToday=date.toDateString()===new Date().toDateString(); return(
-                      <th key={i} style={{background:isToday?"#16307a":"#1E3A8A",padding:"13px 8px",textAlign:"center",color:"white",fontSize:12,fontWeight:800,minWidth:130,borderLeft:"1px solid rgba(255,255,255,0.1)"}}>
-                        <div style={{fontSize:13,fontWeight:900}}>{DAY_SHORT[i]}</div>
-                        <div style={{fontSize:11,opacity:0.72,marginTop:2}}>{formatDate(date)}</div>
-                      </th>
-                    ); })}
-                  </tr>
-                </thead>
-                <tbody>
-                  {staffWithLunch.length===0&&<tr><td colSpan={8} style={{padding:40,textAlign:"center",color:"#94A3B8",fontSize:14}}>No lunch blocks scheduled this week.</td></tr>}
-                  {staffWithLunch.map((s,si)=>(
-                    <tr key={s.id} style={{borderBottom:"1px solid #E8F3E8",background:si%2===0?"white":"#FAFDF9"}}>
-                      <td style={{padding:"10px 14px",borderRight:"2px solid #E8F3E8"}}>
-                        <div style={{display:"flex",alignItems:"center",gap:8}}>
-                          <div style={{width:30,height:30,borderRadius:"50%",background:getAvatarColor(si),display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:900,color:"white",flexShrink:0}}>{initials(s.name)}</div>
-                          <span style={{fontSize:12,fontWeight:700,color:"#1E293B"}}>{s.name}</span>
-                        </div>
-                      </td>
-                      {weekDates.map((_,dayIdx)=>{
-                        const blocks=(getCellData(s.id,dayIdx)?.blocks||[]);
-                        const lunchBlock=blocks.find(b=>IS_LUNCH(b.room||""));
-                        if(!lunchBlock) return <td key={dayIdx} style={{padding:8,borderLeft:"1px solid #F0F7F0",textAlign:"center"}}><span style={{fontSize:11,color:"#CBD5E1"}}>—</span></td>;
-                        const reliefs=(lunchBlock.reliefs||[]).filter(r=>r.staffId&&r.startTime&&r.endTime);
-                        const hasRelief=reliefs.length>0;
-                        const suggested=hasRelief?[]:getFreeStaff(dayIdx,lunchBlock.startTime,lunchBlock.endTime,s.id);
-                        return(
-                          <td key={dayIdx} style={{padding:8,borderLeft:"1px solid #F0F7F0",verticalAlign:"top"}}>
-                            <div style={{background:hasRelief?"#F0FDF4":"#FFF7ED",border:`1.5px solid ${hasRelief?"#86EFAC":"#FCD34D"}`,borderRadius:10,padding:"8px 10px"}}>
-                              <div style={{fontSize:11,fontWeight:800,color:"#475569",marginBottom:4}}>{lunchBlock.startTime} – {lunchBlock.endTime}</div>
-                              {hasRelief?(
-                                <div style={{display:"flex",flexDirection:"column",gap:3}}>
-                                  {reliefs.map(r=>{
-                                    const rm=staff.find(st=>String(st.id)===String(r.staffId));
-                                    return <div key={r.id} style={{display:"flex",alignItems:"center",gap:5}}>
-                                      <span style={{fontSize:10,color:"#16A34A",fontWeight:900}}>✓</span>
-                                      <span style={{fontSize:11,fontWeight:700,color:"#15803D"}}>{rm?.name||"Unknown"}</span>
-                                      <span style={{fontSize:9.5,color:"#6B7280"}}>{r.startTime}–{r.endTime}</span>
-                                    </div>;
-                                  })}
-                                </div>
-                              ):(
-                                <div>
-                                  <div style={{display:"flex",alignItems:"center",gap:4,marginBottom:5}}>
-                                    <span style={{fontSize:10,color:"#DC2626",fontWeight:900}}>✗</span>
-                                    <span style={{fontSize:11,fontWeight:800,color:"#DC2626"}}>No Relief</span>
-                                  </div>
-                                  {suggested.length>0&&(
-                                    <div>
-                                      <div style={{fontSize:9,fontWeight:800,color:"#92400E",letterSpacing:"0.4px",marginBottom:3}}>SUGGESTED:</div>
-                                      {suggested.slice(0,3).map(sg=>(
-                                        <div key={sg.id} style={{fontSize:10,fontWeight:700,color:"#78350F",background:"#FEF3C7",borderRadius:5,padding:"2px 6px",marginBottom:2}}>👤 {sg.name}</div>
-                                      ))}
-                                    </div>
-                                  )}
-                                  {suggested.length===0&&<div style={{fontSize:10,color:"#9CA3AF",fontStyle:"italic"}}>No staff available</div>}
-                                </div>
-                              )}
-                            </div>
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        );
-      })()}
 
       {/* ── INSIGHTS VIEW ── */}
       {showInsights&&(()=>{
         const INS_START=360, INS_END=1110, INS_RANGE=INS_END-INS_START;
         const BLOCK_H=34, BLOCK_PAD=4;
-        const visRooms = insightRoomFilter ? rooms.filter(r=>insightRoomFilter.has(r.name)) : rooms.filter(r=>r.name!=="Vacation");
         const clampedInsightDayIdx = Math.min(insightDayIdx, 6);
         const hours = [6,7,8,9,10,11,12,13,14,15,16,17,18];
 
-        // Assign each block a lane (row) within its room using a greedy algorithm
+        // Room order — use insightRoomOrder if set, else default rooms order
+        const orderedRooms = (insightRoomOrder || rooms.filter(r=>r.name!=="Vacation")).map(r=>
+          rooms.find(rm=>rm.name===r.name)||r
+        ).filter(Boolean);
+
+        // Hidden rooms set
+        const hiddenRooms = insightRoomFilter || new Set();
+
+        const visRooms = orderedRooms.filter(r=>!hiddenRooms.has(r.name));
+
+        // Greedy lane assignment — stacks blocks vertically only when they genuinely overlap
         const buildLanes = (blocks) => {
           const sorted=[...blocks].sort((a,b)=>timeToMins(a.startTime)-timeToMins(b.startTime));
-          const lanes=[]; // lanes[i] = end time of last block in lane i
+          const laneEnds=[];
           return sorted.map(rb=>{
             const rs=timeToMins(rb.startTime);
-            let lane=lanes.findIndex(endT=>endT<=rs);
-            if(lane===-1){lane=lanes.length;lanes.push(0);}
-            lanes[lane]=timeToMins(rb.endTime);
+            let lane=laneEnds.findIndex(e=>e<=rs);
+            if(lane===-1){lane=laneEnds.length;laneEnds.push(0);}
+            laneEnds[lane]=timeToMins(rb.endTime);
             return{...rb,lane};
           });
         };
 
         const roomStaffMap = {};
-        visRooms.forEach(room=>{
+        orderedRooms.forEach(room=>{
           const raw=[];
           staff.forEach((s,si)=>{
             (getCellData(s.id,clampedInsightDayIdx)?.blocks||[]).forEach(b=>{
@@ -993,13 +905,21 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
 
         const maxLanes = (blocks) => blocks.reduce((m,b)=>Math.max(m,(b.lane||0)+1),1);
 
-        const hasOverlapInRoom = (blocks) => {
-          for(let i=0;i<blocks.length;i++) for(let j=i+1;j<blocks.length;j++){
-            const as=timeToMins(blocks[i].startTime),ae=timeToMins(blocks[i].endTime);
-            const bs=timeToMins(blocks[j].startTime),be=timeToMins(blocks[j].endTime);
-            if(as<be&&bs<ae) return true;
-          }
-          return false;
+        const moveRoom = (idx, dir) => {
+          const base = insightRoomOrder || rooms.filter(r=>r.name!=="Vacation");
+          const arr=[...base];
+          const newIdx=idx+dir;
+          if(newIdx<0||newIdx>=arr.length) return;
+          [arr[idx],arr[newIdx]]=[arr[newIdx],arr[idx]];
+          setInsightRoomOrder(arr);
+        };
+
+        const toggleHideRoom = (name) => {
+          setInsightRoomFilter(prev=>{
+            const next=new Set(prev||[]);
+            if(next.has(name)) next.delete(name); else next.add(name);
+            return next.size===0?null:next;
+          });
         };
 
         return(
@@ -1016,27 +936,13 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                   </button>
                 ); })}
               </div>
-            </div>
-
-            {/* Room filter */}
-            <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:16,flexWrap:"wrap"}}>
-              <span style={{fontSize:11,fontWeight:800,color:"#6B7280",letterSpacing:"0.5px"}}>ROOMS:</span>
-              <button onClick={()=>setInsightRoomFilter(null)} style={{padding:"3px 10px",borderRadius:20,border:`1.5px solid ${!insightRoomFilter?"#1E3A8A":"#E2E8F0"}`,background:!insightRoomFilter?"#EFF6FF":"white",color:!insightRoomFilter?"#1E3A8A":"#64748B",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>All</button>
-              {rooms.filter(r=>r.name!=="Vacation").map(room=>{ const c=COLOR_PALETTE[room.colorIdx%COLOR_PALETTE.length]; const sel=insightRoomFilter?.has(room.name); return(
-                <button key={room.id} onClick={()=>setInsightRoomFilter(prev=>{
-                  const next=new Set(prev||rooms.filter(r=>r.name!=="Vacation").map(r=>r.name));
-                  if(sel&&next.size>1) next.delete(room.name); else next.add(room.name);
-                  return next.size===rooms.filter(r=>r.name!=="Vacation").length?null:next;
-                })} style={{padding:"3px 10px",borderRadius:20,border:`1.5px solid ${sel||!insightRoomFilter?c.border:"#E2E8F0"}`,background:sel||!insightRoomFilter?c.bg:"white",color:sel||!insightRoomFilter?c.text:"#9CA3AF",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
-                  {room.name}
-                </button>
-              ); })}
+              <div style={{marginLeft:"auto",fontSize:11,color:"#94A3B8",fontWeight:600}}>Click a staff block to edit their shift</div>
             </div>
 
             <div style={{background:"white",borderRadius:18,boxShadow:"0 2px 20px rgba(0,0,0,0.07)",padding:"16px 20px",overflowX:"auto"}}>
-              {/* Hour header row */}
+              {/* Hour header */}
               <div style={{display:"flex",alignItems:"center",marginBottom:10,paddingBottom:6,borderBottom:"1px solid #F1F5F9"}}>
-                <div style={{width:150,flexShrink:0}}/>
+                <div style={{width:190,flexShrink:0}}/>
                 <div style={{flex:1,position:"relative",height:16}}>
                   {hours.map(h=>{
                     const pct=(h*60-INS_START)/INS_RANGE*100;
@@ -1048,71 +954,93 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
               </div>
 
               {/* Room rows */}
-              {visRooms.map(room=>{
+              {orderedRooms.map((room,roomIdx)=>{
                 const c=COLOR_PALETTE[room.colorIdx%COLOR_PALETTE.length];
+                const isHidden=hiddenRooms.has(room.name);
                 const roomBlocks=roomStaffMap[room.name]||[];
-                const hasOvlp=hasOverlapInRoom(roomBlocks);
                 const lanes=maxLanes(roomBlocks);
                 const rowH=Math.max(44,lanes*(BLOCK_H+BLOCK_PAD)+BLOCK_PAD*2);
                 return(
-                  <div key={room.id} style={{display:"flex",alignItems:"flex-start",marginBottom:8}}>
-                    {/* Room label */}
-                    <div style={{width:150,flexShrink:0,paddingRight:12,paddingTop:6}}>
-                      <div style={{background:c.bg,border:`1.5px solid ${c.border}`,borderRadius:8,padding:"5px 10px",fontSize:11,fontWeight:800,color:c.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
-                        {room.name}
-                        {hasOvlp&&<span style={{marginLeft:5,fontSize:9,background:"#FEE2E2",color:"#DC2626",padding:"1px 4px",borderRadius:4,fontWeight:900}}>OVERLAP</span>}
+                  <div key={room.id} style={{display:"flex",alignItems:"flex-start",marginBottom:6,opacity:isHidden?0.4:1}}>
+                    {/* Controls + room label */}
+                    <div style={{width:190,flexShrink:0,paddingRight:10,display:"flex",alignItems:"flex-start",gap:4,paddingTop:4}}>
+                      {/* Reorder buttons */}
+                      <div style={{display:"flex",flexDirection:"column",gap:2,flexShrink:0}}>
+                        <button onClick={()=>moveRoom(roomIdx,-1)} disabled={roomIdx===0}
+                          style={{background:"none",border:"none",cursor:roomIdx===0?"default":"pointer",fontSize:11,color:roomIdx===0?"#E2E8F0":"#94A3B8",padding:"1px 3px",lineHeight:1}}>▲</button>
+                        <button onClick={()=>moveRoom(roomIdx,1)} disabled={roomIdx===orderedRooms.length-1}
+                          style={{background:"none",border:"none",cursor:roomIdx===orderedRooms.length-1?"default":"pointer",fontSize:11,color:roomIdx===orderedRooms.length-1?"#E2E8F0":"#94A3B8",padding:"1px 3px",lineHeight:1}}>▼</button>
+                      </div>
+                      {/* Room label + hide toggle */}
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{background:c.bg,border:`1.5px solid ${c.border}`,borderRadius:8,padding:"5px 8px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:4}}>
+                          <span style={{fontSize:10.5,fontWeight:800,color:c.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{room.name}</span>
+                          <button onClick={()=>toggleHideRoom(room.name)} title={isHidden?"Show":"Hide"}
+                            style={{background:"none",border:"none",cursor:"pointer",fontSize:11,color:c.border,flexShrink:0,padding:0,lineHeight:1,opacity:0.7}}>
+                            {isHidden?"👁":"✕"}
+                          </button>
+                        </div>
                       </div>
                     </div>
-                    {/* Timeline */}
-                    <div style={{flex:1,position:"relative",background:"#F8FAFC",borderRadius:10,border:`1.5px solid ${hasOvlp?"#FCA5A5":"#E2E8F0"}`,height:rowH,minWidth:0}}>
-                      {hours.map(h=>{
-                        const pct=(h*60-INS_START)/INS_RANGE*100;
-                        if(pct<0||pct>100) return null;
-                        return <div key={h} style={{position:"absolute",left:`${pct}%`,top:0,bottom:0,borderLeft:`1px solid ${h%6===0?"#CBD5E1":"#EEF2F7"}`,pointerEvents:"none"}}/>;
-                      })}
-                      {roomBlocks.length===0&&(
-                        <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
-                          <span style={{fontSize:10,color:"#CBD5E1",fontWeight:600}}>No staff scheduled</span>
-                        </div>
-                      )}
-                      {roomBlocks.map((rb,rbi)=>{
-                        const rs=timeToMins(rb.startTime),re=timeToMins(rb.endTime);
-                        const left=Math.max(0,(rs-INS_START)/INS_RANGE*100);
-                        const width=Math.max(1,(re-rs)/INS_RANGE*100);
-                        const blockHasOvlp=roomBlocks.some((ob,obi)=>{
-                          if(obi===rbi) return false;
-                          const os=timeToMins(ob.startTime),oe=timeToMins(ob.endTime);
-                          return rs<oe&&os<re;
-                        });
-                        const top=BLOCK_PAD+rb.lane*(BLOCK_H+BLOCK_PAD);
-                        return(
-                          <div key={rbi} title={`${rb.name}  ${rb.startTime} – ${rb.endTime}`}
-                            style={{position:"absolute",left:`${left}%`,width:`${width}%`,top,height:BLOCK_H,background:blockHasOvlp?"#FEE2E2":c.bg,border:`2px solid ${blockHasOvlp?"#EF4444":c.border}`,borderRadius:7,display:"flex",alignItems:"center",gap:5,padding:"0 7px",overflow:"hidden",boxSizing:"border-box",cursor:"default"}}>
-                            <div style={{width:20,height:20,borderRadius:"50%",background:blockHasOvlp?"#EF4444":c.border,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:900,color:"white",flexShrink:0}}>{initials(rb.name)}</div>
-                            <div style={{overflow:"hidden",minWidth:0}}>
-                              <div style={{fontSize:10,fontWeight:800,color:blockHasOvlp?"#991B1B":c.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{rb.name.split(" ")[0]}</div>
-                              <div style={{fontSize:8.5,color:blockHasOvlp?"#B91C1C":"#94A3B8",whiteSpace:"nowrap"}}>{rb.startTime.replace(":00","").replace(" ","").toLowerCase()}–{rb.endTime.replace(":00","").replace(" ","").toLowerCase()}</div>
-                            </div>
+
+                    {/* Timeline track */}
+                    {!isHidden?(
+                      <div style={{flex:1,position:"relative",background:"#F8FAFC",borderRadius:10,border:"1.5px solid #E2E8F0",height:rowH,minWidth:0}}>
+                        {hours.map(h=>{
+                          const pct=(h*60-INS_START)/INS_RANGE*100;
+                          if(pct<0||pct>100) return null;
+                          return <div key={h} style={{position:"absolute",left:`${pct}%`,top:0,bottom:0,borderLeft:`1px solid ${h%6===0?"#CBD5E1":"#EEF2F7"}`,pointerEvents:"none"}}/>;
+                        })}
+                        {roomBlocks.length===0&&(
+                          <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                            <span style={{fontSize:10,color:"#CBD5E1",fontWeight:600}}>No staff scheduled</span>
                           </div>
-                        );
-                      })}
-                    </div>
+                        )}
+                        {roomBlocks.map((rb,rbi)=>{
+                          const rs=timeToMins(rb.startTime),re=timeToMins(rb.endTime);
+                          const left=Math.max(0,(rs-INS_START)/INS_RANGE*100);
+                          const width=Math.max(1,(re-rs)/INS_RANGE*100);
+                          const top=BLOCK_PAD+rb.lane*(BLOCK_H+BLOCK_PAD);
+                          return(
+                            <div key={rbi}
+                              title={`${rb.name}  ${rb.startTime} – ${rb.endTime}\nClick to edit`}
+                              onClick={()=>{ setShowInsights(false); setTimeout(()=>openEdit(rb.staffId,clampedInsightDayIdx),80); }}
+                              style={{position:"absolute",left:`${left}%`,width:`${width}%`,top,height:BLOCK_H,background:c.bg,border:`2px solid ${c.border}`,borderRadius:7,display:"flex",alignItems:"center",gap:5,padding:"0 7px",overflow:"hidden",boxSizing:"border-box",cursor:"pointer",transition:"filter 0.1s"}}
+                              onMouseEnter={e=>e.currentTarget.style.filter="brightness(0.93)"}
+                              onMouseLeave={e=>e.currentTarget.style.filter=""}>
+                              <div style={{width:20,height:20,borderRadius:"50%",background:c.border,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:900,color:"white",flexShrink:0}}>{initials(rb.name)}</div>
+                              <div style={{overflow:"hidden",minWidth:0}}>
+                                <div style={{fontSize:10,fontWeight:800,color:c.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{rb.name.split(" ")[0]}</div>
+                                <div style={{fontSize:8.5,color:"#94A3B8",whiteSpace:"nowrap"}}>{rb.startTime.replace(":00","").replace(" ","").toLowerCase()}–{rb.endTime.replace(":00","").replace(" ","").toLowerCase()}</div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ):(
+                      <div style={{flex:1,height:36,background:"#F8FAFC",borderRadius:10,border:"1.5px dashed #E2E8F0",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                        <span style={{fontSize:10,color:"#CBD5E1",fontWeight:600}}>Hidden — click ✕ on the room label to show</span>
+                      </div>
+                    )}
                   </div>
                 );
               })}
 
-              {/* Legend */}
-              <div style={{marginTop:16,paddingTop:12,borderTop:"1px solid #F1F5F9",display:"flex",gap:16,flexWrap:"wrap"}}>
-                <div style={{display:"flex",alignItems:"center",gap:6}}><div style={{width:14,height:14,borderRadius:3,background:"#FEE2E2",border:"2px solid #EF4444"}}/><span style={{fontSize:11,color:"#6B7280",fontWeight:600}}>Overlap — two or more staff in same room at same time</span></div>
-                <div style={{display:"flex",alignItems:"center",gap:6}}><span style={{fontSize:11,color:"#94A3B8",fontWeight:600}}>Hover any block to see full name and exact times</span></div>
-              </div>
+              {/* Show all button if any hidden */}
+              {hiddenRooms.size>0&&(
+                <div style={{marginTop:12,paddingTop:12,borderTop:"1px solid #F1F5F9"}}>
+                  <button onClick={()=>setInsightRoomFilter(null)} style={{fontSize:11,fontWeight:700,color:"#6D28D9",background:"#F5F3FF",border:"1.5px solid #DDD6FE",borderRadius:8,padding:"5px 12px",cursor:"pointer",fontFamily:"inherit"}}>
+                    👁 Show all hidden rooms ({hiddenRooms.size})
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         );
       })()}
 
       {/* ── SCHEDULE TABLE ── */}
-      {!showLunchOverview&&!showInsights&&<div style={{padding:"20px 28px",overflowX:"auto"}}>
+      {!showInsights&&<div style={{padding:"20px 28px",overflowX:"auto"}}>
         <div style={{background:"white",borderRadius:18,boxShadow:"0 2px 20px rgba(0,0,0,0.07)",overflow:"hidden",minWidth:680}}>
           <table style={{width:"100%",borderCollapse:"collapse"}}>
             <thead>
