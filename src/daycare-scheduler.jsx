@@ -23,6 +23,10 @@ const TL_START = 330;  // 5:30 AM in minutes
 const TL_END   = 1110; // 6:30 PM in minutes
 const TL_RANGE = TL_END - TL_START;
 
+const INS_START = 360; // 6:00 AM
+const INS_END   = 1110; // 6:00 PM
+const INS_RANGE = INS_END - INS_START;
+
 function minsToTime(m) {
   m = Math.max(TL_START, Math.min(TL_END, Math.round(m/15)*15));
   const h24=Math.floor(m/60), min=m%60;
@@ -246,9 +250,17 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
   const isRemoteUpdate  = useRef(false);
   const tlRef           = useRef(null);
   const tlDragRef       = useRef(null);
+  const insDragRef      = useRef(null);
+  const insNewDragRef   = useRef(null); // for drawing new blocks on empty track space
+  const insLastMouseRef = useRef({x:0,y:0});
+  const insHandlerRef   = useRef({});
   const tlHandlerRef    = useRef({});
   const [tlPreview,     setTlPreview]  = useState(null);
-  const [tlTooltip,     setTlTooltip]  = useState(null); // {x, label, type}
+  const [tlTooltip,     setTlTooltip]  = useState(null);
+  const [insDragPreview,setInsDragPreview] = useState(null);
+  const [insDragTooltip,setInsDragTooltip] = useState(null);
+  const [insNewPreview, setInsNewPreview]  = useState(null); // {room, startMins, endMins}
+  const [insNewPopover, setInsNewPopover]  = useState(null); // {room, dayIdx, startMins, endMins, staffId, mouseX, mouseY}
   const weekDates = getWeekDates(weekStart);
   const wiso      = weekStart.toISOString();
 
@@ -391,6 +403,71 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
     document.addEventListener('mouseup',up);
     return()=>{ document.removeEventListener('mousemove',mv); document.removeEventListener('mouseup',up); };
   },[editCell]);
+
+  // ── Insights drag-to-edit handlers ────────────────────────────────────────
+  insHandlerRef.current.move = (e) => {
+    insLastMouseRef.current = {x:e.clientX, y:e.clientY};
+    // Handle existing block drag
+    const drag=insDragRef.current;
+    if(drag){
+      const {trackRect,origStart,origEnd,anchor,type}=drag;
+      const x=Math.max(0,Math.min(trackRect.width,e.clientX-trackRect.left));
+      const snapped=Math.max(INS_START,Math.min(INS_END,Math.round((x/trackRect.width*INS_RANGE+INS_START)/15)*15));
+      const dur=origEnd-origStart;
+      let ns=origStart,ne=origEnd;
+      if(type==='resize-s'){ ns=Math.min(snapped,origEnd-15); ne=origEnd; }
+      else if(type==='resize-e'){ ns=origStart; ne=Math.max(snapped,origStart+15); }
+      else { const d=snapped-anchor; ns=origStart+d; ne=origEnd+d; if(ns<INS_START){ns=INS_START;ne=INS_START+dur;} if(ne>INS_END){ne=INS_END;ns=INS_END-dur;} }
+      const pct=(ns-INS_START)/INS_RANGE*100;
+      const label=type==='move'?`${minsToTime(ns)} → ${minsToTime(ne)}`:type==='resize-s'?`Start: ${minsToTime(ns)}`:`End: ${minsToTime(ne)}`;
+      setInsDragPreview({staffId:drag.staffId,blockId:drag.blockId,startMins:ns,endMins:ne});
+      setInsDragTooltip({pct,label});
+    }
+    // Handle new block drawing
+    const newDrag=insNewDragRef.current;
+    if(newDrag){
+      const {trackRect,anchor}=newDrag;
+      const x=Math.max(0,Math.min(trackRect.width,e.clientX-trackRect.left));
+      const snapped=Math.max(INS_START,Math.min(INS_END,Math.round((x/trackRect.width*INS_RANGE+INS_START)/15)*15));
+      const s=Math.min(anchor,snapped), en=Math.max(anchor,snapped);
+      setInsNewPreview({room:newDrag.room,startMins:s,endMins:Math.max(en,s+15)});
+    }
+  };
+  insHandlerRef.current.up = () => {
+    // Handle existing block drag save
+    const drag=insDragRef.current;
+    if(drag&&insDragPreview&&drag.blockId===insDragPreview.blockId){
+      const {staffId,dayIdx}=drag;
+      const {startMins,endMins}=insDragPreview;
+      const key=`${wiso}|${staffId}|${dayIdx}`;
+      const ns={...schedule};
+      if(ns[key]?.blocks){
+        ns[key]={...ns[key],blocks:ns[key].blocks.map(b=>
+          b.id===drag.blockId?{...b,startTime:minsToTime(startMins),endTime:minsToTime(endMins)}:b
+        )};
+        setSchedule(reconcileReliefs(ns));
+      }
+    }
+    insDragRef.current=null; setInsDragPreview(null); setInsDragTooltip(null);
+    // Handle new block — show popover for staff assignment
+    const newDrag=insNewDragRef.current;
+    if(newDrag){
+      const preview=insNewPreview;
+      const startMins=preview?.startMins??newDrag.anchor;
+      const endMins=preview?.endMins??Math.min(newDrag.anchor+60,INS_END);
+      setInsNewPopover({room:newDrag.room,dayIdx:newDrag.dayIdx,startMins,endMins,
+        staffId:"",isRelief:false,mouseX:insLastMouseRef.current.x,mouseY:insLastMouseRef.current.y});
+      insNewDragRef.current=null; setInsNewPreview(null);
+    }
+  };
+  useEffect(()=>{
+    if(!showInsights)return;
+    const mv=e=>insHandlerRef.current.move?.(e);
+    const up=e=>insHandlerRef.current.up?.(e);
+    document.addEventListener('mousemove',mv);
+    document.addEventListener('mouseup',up);
+    return()=>{ document.removeEventListener('mousemove',mv); document.removeEventListener('mouseup',up); };
+  },[showInsights]);
 
   // ── Calendar click-outside ─────────────────────────────────────────────────
   useEffect(()=>{
@@ -927,20 +1004,18 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
 
       {/* ── INSIGHTS VIEW ── */}
       {showInsights&&(()=>{
-        const INS_START=360, INS_END=1110, INS_RANGE=INS_END-INS_START;
         const BLOCK_H=34, BLOCK_PAD=4;
         const clampedInsightDayIdx = Math.min(insightDayIdx, 6);
         const hours = [6,7,8,9,10,11,12,13,14,15,16,17,18];
+        const RELIEF_COLOR = {bg:"#FEF9C3",border:"#F59E0B",text:"#92400E",dot:"#F59E0B"};
 
         // Room order — use insightRoomOrder if set, else default rooms order
-        const orderedRooms = (insightRoomOrder || rooms.filter(r=>r.name!=="Vacation")).map(r=>
+        const orderedRooms = (insightRoomOrder || rooms.filter(r=>r.name!=="Vacation"&&r.name!=="Sick")).map(r=>
           rooms.find(rm=>rm.name===r.name)||r
         ).filter(Boolean);
 
         // Hidden rooms set
         const hiddenRooms = insightRoomFilter || new Set();
-
-        const visRooms = orderedRooms.filter(r=>!hiddenRooms.has(r.name));
 
         // Greedy lane assignment — stacks blocks vertically only when they genuinely overlap
         const buildLanes = (blocks) => {
@@ -961,10 +1036,40 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
           staff.forEach((s,si)=>{
             (getCellData(s.id,clampedInsightDayIdx)?.blocks||[]).forEach(b=>{
               if(b.room===room.name&&b.startTime&&b.endTime)
-                raw.push({staffId:s.id,name:s.name,si,startTime:b.startTime,endTime:b.endTime});
+                raw.push({staffId:s.id,name:s.name,si,startTime:b.startTime,endTime:b.endTime,
+                  blockId:b.id,isRelief:!!b.reliefFor,reliefNote:b.reliefNote||''});
             });
           });
           roomStaffMap[room.name]=buildLanes(raw);
+        });
+
+        // For each room, find lunch gaps per staff member (gap between consecutive blocks of same person)
+        // If they have a Lunch/Break block with no relief in that gap → show an "Add relief" zone
+        const lunchGapMap = {}; // roomName → [{staffId, name, si, lane, gapStartMins, gapEndMins, lunchBlockId}]
+        orderedRooms.forEach(room=>{
+          const gaps=[];
+          const staffInRoom=new Map();
+          (roomStaffMap[room.name]||[]).forEach(rb=>{
+            if(!staffInRoom.has(rb.staffId)) staffInRoom.set(rb.staffId,{name:rb.name,si:rb.si,lane:rb.lane,blocks:[]});
+            staffInRoom.get(rb.staffId).blocks.push(rb);
+          });
+          staffInRoom.forEach((info,sId)=>{
+            const sorted=[...info.blocks].sort((a,b)=>timeToMins(a.startTime)-timeToMins(b.startTime));
+            for(let i=0;i<sorted.length-1;i++){
+              const gapStart=timeToMins(sorted[i].endTime), gapEnd=timeToMins(sorted[i+1].startTime);
+              if(gapEnd<=gapStart) continue;
+              // Find a Lunch/Break block for this staff in this gap
+              const theirBlocks=getCellData(sId,clampedInsightDayIdx)?.blocks||[];
+              const lunchBlock=theirBlocks.find(b=>IS_LUNCH_ROOM(b.room||'')&&b.startTime&&b.endTime&&
+                timeToMins(b.startTime)>=gapStart-15&&timeToMins(b.endTime)<=gapEnd+15);
+              if(lunchBlock){
+                const noRelief=!(lunchBlock.reliefs||[]).some(r=>r.staffId&&r.startTime&&r.endTime);
+                gaps.push({staffId:sId,name:info.name,si:info.si,lane:info.lane,
+                  gapStartMins:gapStart,gapEndMins:gapEnd,lunchBlockId:lunchBlock.id,hasRelief:!noRelief});
+              }
+            }
+          });
+          lunchGapMap[room.name]=gaps;
         });
 
         const maxLanes = (blocks) => blocks.reduce((m,b)=>Math.max(m,(b.lane||0)+1),1);
@@ -1049,33 +1154,133 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
 
                     {/* Timeline track */}
                     {!isHidden?(
-                      <div style={{flex:1,position:"relative",background:"#F8FAFC",borderRadius:10,border:"1.5px solid #E2E8F0",height:rowH,minWidth:0}}>
+                      <div ref={el=>{if(el)el._insRoom=room.name;}}
+                        style={{flex:1,position:"relative",background:"#F8FAFC",borderRadius:10,border:"1.5px solid #E2E8F0",height:rowH,minWidth:0,userSelect:"none"}}
+                        onMouseDown={e=>{
+                          if(e.button!==0)return;
+                          // Only fire if click is on the track itself (blocks stopPropagation)
+                          const trackRect=e.currentTarget.getBoundingClientRect();
+                          const x=e.clientX-trackRect.left;
+                          const snapped=Math.max(INS_START,Math.min(INS_END,Math.round((x/trackRect.width*INS_RANGE+INS_START)/15)*15));
+                          insNewDragRef.current={room:room.name,dayIdx:clampedInsightDayIdx,anchor:snapped,trackRect};
+                          setInsNewPreview({room:room.name,startMins:snapped,endMins:Math.min(snapped+60,INS_END)});
+                        }}>
+                        {/* Hour grid lines */}
                         {hours.map(h=>{
                           const pct=(h*60-INS_START)/INS_RANGE*100;
                           if(pct<0||pct>100) return null;
                           return <div key={h} style={{position:"absolute",left:`${pct}%`,top:0,bottom:0,borderLeft:`1px solid ${h%6===0?"#CBD5E1":"#EEF2F7"}`,pointerEvents:"none"}}/>;
                         })}
                         {roomBlocks.length===0&&(
-                          <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                          <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",pointerEvents:"none"}}>
                             <span style={{fontSize:10,color:"#CBD5E1",fontWeight:600}}>No staff scheduled</span>
                           </div>
                         )}
+
+                        {/* Drag tooltip — only for the room where drag is active */}
+                        {insDragTooltip&&insDragRef.current?.roomName===room.name&&(()=>{
+                          const cx=Math.max(5,Math.min(95,insDragTooltip.pct));
+                          return(
+                            <div style={{position:"absolute",left:`${cx}%`,top:-28,transform:"translateX(-50%)",background:"#1E293B",color:"white",fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:6,whiteSpace:"nowrap",pointerEvents:"none",zIndex:20}}>
+                              {insDragTooltip.label}
+                            </div>
+                          );
+                        })()}
+
+                        {/* Lunch gap "Add relief" zones */}
+                        {(lunchGapMap[room.name]||[]).map((gap,gi)=>{
+                          const gLeft=Math.max(0,(gap.gapStartMins-INS_START)/INS_RANGE*100);
+                          const gWidth=Math.max(0.5,(gap.gapEndMins-gap.gapStartMins)/INS_RANGE*100);
+                          const gTop=BLOCK_PAD+gap.lane*(BLOCK_H+BLOCK_PAD);
+                          return(
+                            <div key={gi}
+                              onClick={()=>{ setShowInsights(false); setTimeout(()=>openEdit(gap.staffId,clampedInsightDayIdx),80); }}
+                              title={gap.hasRelief?`${gap.name.split(" ")[0]}'s lunch — relief assigned`:`Click to assign relief for ${gap.name.split(" ")[0]}'s lunch`}
+                              style={{position:"absolute",left:`${gLeft}%`,width:`${gWidth}%`,top:gTop,height:BLOCK_H,
+                                border:`2px dashed ${gap.hasRelief?"#86EFAC":"#FCD34D"}`,borderRadius:7,
+                                background:gap.hasRelief?"rgba(134,239,172,0.08)":"rgba(252,211,77,0.12)",
+                                boxSizing:"border-box",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:4,
+                                zIndex:1}}>
+                              {!gap.hasRelief&&<span style={{fontSize:9,fontWeight:800,color:"#92400E",background:"#FEF9C3",padding:"1px 5px",borderRadius:4,whiteSpace:"nowrap"}}>+ Add relief</span>}
+                              {gap.hasRelief&&<span style={{fontSize:9,fontWeight:800,color:"#166534",background:"#DCFCE7",padding:"1px 5px",borderRadius:4,whiteSpace:"nowrap"}}>✓ Covered</span>}
+                            </div>
+                          );
+                        })}
+
+                        {/* New block drawing preview */}
+                        {insNewPreview?.room===room.name&&(()=>{
+                          const pl=Math.max(0,(insNewPreview.startMins-INS_START)/INS_RANGE*100);
+                          const pw=Math.max(0.5,(insNewPreview.endMins-insNewPreview.startMins)/INS_RANGE*100);
+                          return(
+                            <div style={{position:"absolute",left:`${pl}%`,width:`${pw}%`,top:BLOCK_PAD,height:rowH-BLOCK_PAD*2,
+                              background:"rgba(99,102,241,0.12)",border:"2px dashed #6366F1",borderRadius:7,boxSizing:"border-box",
+                              pointerEvents:"none",display:"flex",alignItems:"center",justifyContent:"center",gap:4,zIndex:5}}>
+                              <span style={{fontSize:9,fontWeight:800,color:"#4F46E5",whiteSpace:"nowrap"}}>
+                                {minsToTime(insNewPreview.startMins).replace(":00","").replace(" ","").toLowerCase()} – {minsToTime(insNewPreview.endMins).replace(":00","").replace(" ","").toLowerCase()}
+                              </span>
+                            </div>
+                          );
+                        })()}
+
+                        {/* Staff blocks */}
                         {roomBlocks.map((rb,rbi)=>{
-                          const rs=timeToMins(rb.startTime),re=timeToMins(rb.endTime);
+                          const isDragging=rb.blockId!=null&&insDragPreview?.blockId===rb.blockId;
+                          const dispStart=isDragging?minsToTime(insDragPreview.startMins):rb.startTime;
+                          const dispEnd=isDragging?minsToTime(insDragPreview.endMins):rb.endTime;
+                          const rs=isDragging?insDragPreview.startMins:timeToMins(rb.startTime);
+                          const re=isDragging?insDragPreview.endMins:timeToMins(rb.endTime);
                           const left=Math.max(0,(rs-INS_START)/INS_RANGE*100);
-                          const width=Math.max(1,(re-rs)/INS_RANGE*100);
+                          const width=Math.max(0.5,(re-rs)/INS_RANGE*100);
                           const top=BLOCK_PAD+rb.lane*(BLOCK_H+BLOCK_PAD);
+                          const bc=rb.isRelief?RELIEF_COLOR:c;
                           return(
                             <div key={rbi}
-                              title={`${rb.name}  ${rb.startTime} – ${rb.endTime}\nClick to edit`}
-                              onClick={()=>{ setShowInsights(false); setTimeout(()=>openEdit(rb.staffId,clampedInsightDayIdx),80); }}
-                              style={{position:"absolute",left:`${left}%`,width:`${width}%`,top,height:BLOCK_H,background:c.bg,border:`2px solid ${c.border}`,borderRadius:7,display:"flex",alignItems:"center",gap:5,padding:"0 7px",overflow:"hidden",boxSizing:"border-box",cursor:"pointer",transition:"filter 0.1s"}}
-                              onMouseEnter={e=>e.currentTarget.style.filter="brightness(0.93)"}
-                              onMouseLeave={e=>e.currentTarget.style.filter=""}>
-                              <div style={{width:20,height:20,borderRadius:"50%",background:c.border,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:900,color:"white",flexShrink:0}}>{initials(rb.name)}</div>
-                              <div style={{overflow:"hidden",minWidth:0}}>
-                                <div style={{fontSize:10,fontWeight:800,color:c.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{rb.name.split(" ")[0]}</div>
-                                <div style={{fontSize:8.5,color:"#94A3B8",whiteSpace:"nowrap"}}>{rb.startTime.replace(":00","").replace(" ","").toLowerCase()}–{rb.endTime.replace(":00","").replace(" ","").toLowerCase()}</div>
+                              style={{position:"absolute",left:`${left}%`,width:`${width}%`,top,height:BLOCK_H,
+                                background:bc.bg,border:`2px solid ${bc.border}`,borderRadius:7,
+                                display:"flex",alignItems:"center",gap:0,overflow:"hidden",
+                                boxSizing:"border-box",cursor:"grab",zIndex:isDragging?10:2,
+                                opacity:isDragging?0.85:1,
+                                boxShadow:isDragging?"0 4px 16px rgba(0,0,0,0.18)":"none"}}
+                              onMouseDown={e=>{
+                                if(e.button!==0)return;
+                                e.preventDefault();
+                                e.stopPropagation();
+                                const trackEl=e.currentTarget.parentElement;
+                                const trackRect=trackEl.getBoundingClientRect();
+                                const x=e.clientX-trackRect.left;
+                                const bL=(timeToMins(rb.startTime)-INS_START)/INS_RANGE*trackRect.width;
+                                const bR=(timeToMins(rb.endTime)-INS_START)/INS_RANGE*trackRect.width;
+                                const EDGE=10;
+                                const type=x<=bL+EDGE?'resize-s':x>=bR-EDGE?'resize-e':'move';
+                                const snapped=Math.max(INS_START,Math.min(INS_END,Math.round((x/trackRect.width*INS_RANGE+INS_START)/15)*15));
+                                insDragRef.current={type,staffId:rb.staffId,dayIdx:clampedInsightDayIdx,blockId:rb.blockId,
+                                  roomName:room.name,origStart:timeToMins(rb.startTime),origEnd:timeToMins(rb.endTime),anchor:snapped,trackRect};
+                              }}
+                              onClick={e=>{
+                                // Only fire click if no drag happened
+                                if(insDragPreview) return;
+                                e.stopPropagation();
+                                setShowInsights(false); setTimeout(()=>openEdit(rb.staffId,clampedInsightDayIdx),80);
+                              }}>
+                              {/* Left resize handle */}
+                              <div style={{width:8,height:"100%",cursor:"ew-resize",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",opacity:0.4}}>
+                                <div style={{width:2,height:12,background:bc.border,borderRadius:1}}/>
+                              </div>
+                              {/* Content */}
+                              <div style={{flex:1,display:"flex",alignItems:"center",gap:4,overflow:"hidden",padding:"0 2px",minWidth:0}}>
+                                <div style={{width:18,height:18,borderRadius:"50%",background:bc.border,display:"flex",alignItems:"center",justifyContent:"center",fontSize:7,fontWeight:900,color:"white",flexShrink:0}}>{initials(rb.name)}</div>
+                                <div style={{overflow:"hidden",minWidth:0,flex:1}}>
+                                  <div style={{fontSize:10,fontWeight:800,color:bc.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+                                    {rb.name.split(" ")[0]}{rb.isRelief?<span style={{fontSize:8,opacity:0.8}}> ↔</span>:null}
+                                  </div>
+                                  <div style={{fontSize:8,color:"#94A3B8",whiteSpace:"nowrap"}}>
+                                    {dispStart.replace(":00","").replace(" ","").toLowerCase()}–{dispEnd.replace(":00","").replace(" ","").toLowerCase()}
+                                  </div>
+                                </div>
+                              </div>
+                              {/* Right resize handle */}
+                              <div style={{width:8,height:"100%",cursor:"ew-resize",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",opacity:0.4}}>
+                                <div style={{width:2,height:12,background:bc.border,borderRadius:1}}/>
                               </div>
                             </div>
                           );
@@ -1083,7 +1288,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                       </div>
                     ):(
                       <div style={{flex:1,height:36,background:"#F8FAFC",borderRadius:10,border:"1.5px dashed #E2E8F0",display:"flex",alignItems:"center",justifyContent:"center"}}>
-                        <span style={{fontSize:10,color:"#CBD5E1",fontWeight:600}}>Hidden — click ✕ on the room label to show</span>
+                        <span style={{fontSize:10,color:"#CBD5E1",fontWeight:600}}>Hidden — click 👁 on the room label to show</span>
                       </div>
                     )}
                   </div>
@@ -1100,6 +1305,148 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
               )}
             </div>
           </div>
+        );
+      })()}
+
+      {/* ── INSIGHTS NEW BLOCK POPOVER ── */}
+      {insNewPopover&&(()=>{
+        const pop=insNewPopover;
+        const closePopover=()=>{ setInsNewPopover(null); setInsNewPreview(null); };
+        const roomObj=rooms.find(r=>r.name===pop.room);
+        const c=roomObj?COLOR_PALETTE[roomObj.colorIdx%COLOR_PALETTE.length]:{bg:"#F8FAFC",border:"#CBD5E1",text:"#475569"};
+
+        // Who is in this room during this time window? (for relief detection)
+        const coveredStaff = staff.filter(s=>{
+          if(String(s.id)===String(pop.staffId)) return false;
+          return (getCellData(s.id,pop.dayIdx)?.blocks||[]).some(b=>
+            b.room===pop.room&&b.startTime&&b.endTime&&
+            timeToMins(b.startTime)<=pop.startMins&&timeToMins(b.endTime)>=pop.endMins&&!b.reliefFor
+          );
+        });
+        // Also find who has a Lunch/Break block overlapping this window (primary relief target)
+        const lunchOwner = staff.find(s=>{
+          if(String(s.id)===String(pop.staffId)) return false;
+          return (getCellData(s.id,pop.dayIdx)?.blocks||[]).some(b=>
+            IS_LUNCH_ROOM(b.room||'')&&b.startTime&&b.endTime&&
+            timeToMins(b.startTime)<=pop.startMins+15&&timeToMins(b.endTime)>=pop.endMins-15
+          );
+        }) || coveredStaff[0];
+
+        const saveInsBlock=()=>{
+          if(!pop.staffId) return;
+          const key=`${wiso}|${pop.staffId}|${pop.dayIdx}`;
+          const ns={...schedule};
+          const existing=ns[key]?.blocks||[];
+          let nb;
+          if(pop.isRelief&&lunchOwner){
+            // Create as a relief block — reliefFor is set, which reconcileReliefs will link
+            nb={...newBlock(minsToTime(pop.startMins),minsToTime(pop.endMins),pop.room),
+              reliefFor:lunchOwner.id,
+              reliefNote:`Relief for ${lunchOwner.name}`,
+              reliefBlockId:`r${Date.now()}${Math.random()}`};
+          } else {
+            nb={...newBlock(minsToTime(pop.startMins),minsToTime(pop.endMins),pop.room)};
+          }
+          ns[key]={blocks:sortBlocks([...existing,nb])};
+          setSchedule(reconcileReliefs(ns));
+          closePopover();
+        };
+
+        const PW=310, PH=pop.isRelief?350:300;
+        const left=Math.min(pop.mouseX-PW/2, window.innerWidth-PW-12);
+        const top=Math.min(pop.mouseY+12, window.innerHeight-PH-12);
+        return(
+          <>
+            <div style={{position:"fixed",inset:0,zIndex:3000}} onClick={closePopover}/>
+            <div style={{position:"fixed",left:Math.max(8,left),top:Math.max(8,top),width:PW,zIndex:3001,
+              background:"white",borderRadius:16,boxShadow:"0 12px 40px rgba(0,0,0,0.22)",overflow:"hidden"}}>
+              {/* Header */}
+              <div style={{background:`linear-gradient(135deg,${c.border},${c.border}cc)`,padding:"12px 16px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                <div>
+                  <div style={{color:"white",fontWeight:900,fontSize:13}}>{pop.isRelief?"🔄 Relief block":"New block"} — {pop.room}</div>
+                  <div style={{color:"rgba(255,255,255,0.8)",fontSize:11,marginTop:1}}>{DAY_SHORT[pop.dayIdx]} {formatDate(weekDates[pop.dayIdx])} · {minsToTime(pop.startMins).replace(":00","").toLowerCase()} – {minsToTime(pop.endMins).replace(":00","").toLowerCase()}</div>
+                </div>
+                <button onClick={closePopover}
+                  style={{background:"rgba(255,255,255,0.2)",border:"none",borderRadius:7,width:26,height:26,cursor:"pointer",fontSize:14,color:"white",display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
+              </div>
+              <div style={{padding:"14px 16px",display:"flex",flexDirection:"column",gap:10}}>
+
+                {/* Relief toggle */}
+                <div onClick={()=>setInsNewPopover(p=>({...p,isRelief:!p.isRelief}))}
+                  style={{display:"flex",alignItems:"center",gap:9,padding:"8px 10px",borderRadius:9,
+                    border:`2px solid ${pop.isRelief?"#FCD34D":"#E2E8F0"}`,
+                    background:pop.isRelief?"#FFFBEB":"#F8FAFC",cursor:"pointer"}}>
+                  <div style={{width:18,height:18,borderRadius:5,border:`2px solid ${pop.isRelief?"#F59E0B":"#CBD5E1"}`,
+                    background:pop.isRelief?"#F59E0B":"white",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                    {pop.isRelief&&<span style={{color:"white",fontSize:11,fontWeight:900,lineHeight:1}}>✓</span>}
+                  </div>
+                  <div style={{minWidth:0}}>
+                    <div style={{fontSize:11,fontWeight:800,color:pop.isRelief?"#92400E":"#475569"}}>This is a relief/lunch cover block</div>
+                    {pop.isRelief&&lunchOwner&&(
+                      <div style={{fontSize:10,color:"#92400E",marginTop:1}}>Covering: <strong>{lunchOwner.name}</strong></div>
+                    )}
+                    {pop.isRelief&&!lunchOwner&&(
+                      <div style={{fontSize:10,color:"#94A3B8",marginTop:1}}>No staff found in this room at this time</div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Staff picker */}
+                <div>
+                  <label style={{fontSize:10,fontWeight:800,color:"#6B7280",letterSpacing:"0.5px",display:"block",marginBottom:4}}>STAFF MEMBER</label>
+                  <select value={pop.staffId} onChange={e=>setInsNewPopover(p=>({...p,staffId:e.target.value}))}
+                    style={{width:"100%",padding:"8px 10px",borderRadius:9,border:`2px solid ${pop.staffId?c.border:"#E2E8F0"}`,fontSize:13,fontWeight:700,outline:"none",background:"white",fontFamily:"inherit",cursor:"pointer",color:pop.staffId?"#1E293B":"#94A3B8"}}>
+                    <option value="">— Select staff member —</option>
+                    {staff.map(s=>{
+                      const conflict=(getCellData(s.id,pop.dayIdx)?.blocks||[]).some(b=>
+                        b.startTime&&b.endTime&&!HOURS_EXCLUDED_ROOMS.has(b.room)&&!b.reliefFor&&
+                        timeToMins(b.startTime)<pop.endMins&&timeToMins(b.endTime)>pop.startMins&&b.room!==pop.room
+                      );
+                      return <option key={s.id} value={s.id} disabled={conflict}>{s.name}{conflict?" — busy":""}</option>;
+                    })}
+                  </select>
+                </div>
+
+                {/* Time selects */}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                  <div>
+                    <label style={{fontSize:10,fontWeight:800,color:"#6B7280",letterSpacing:"0.5px",display:"block",marginBottom:4}}>START</label>
+                    <select value={minsToTime(pop.startMins)} onChange={e=>setInsNewPopover(p=>({...p,startMins:timeToMins(e.target.value)}))}
+                      style={{width:"100%",padding:"7px 8px",borderRadius:8,border:"2px solid #E2E8F0",fontSize:12,fontWeight:600,outline:"none",background:"white",fontFamily:"inherit",cursor:"pointer",color:"#334155"}}>
+                      {TIMES.filter(t=>timeToMins(t)<pop.endMins).map(t=><option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{fontSize:10,fontWeight:800,color:"#6B7280",letterSpacing:"0.5px",display:"block",marginBottom:4}}>END</label>
+                    <select value={minsToTime(pop.endMins)} onChange={e=>setInsNewPopover(p=>({...p,endMins:timeToMins(e.target.value)}))}
+                      style={{width:"100%",padding:"7px 8px",borderRadius:8,border:"2px solid #E2E8F0",fontSize:12,fontWeight:600,outline:"none",background:"white",fontFamily:"inherit",cursor:"pointer",color:"#334155"}}>
+                      {TIMES.filter(t=>timeToMins(t)>pop.startMins).map(t=><option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Relief coverage summary */}
+                {pop.isRelief&&pop.staffId&&lunchOwner&&(
+                  <div style={{background:"#FFFBEB",border:"1.5px solid #FCD34D",borderRadius:8,padding:"7px 10px",fontSize:10,fontWeight:700,color:"#92400E"}}>
+                    ✅ On save: <strong>{staff.find(s=>String(s.id)===String(pop.staffId))?.name?.split(" ")[0]}</strong> covers <strong>{lunchOwner.name.split(" ")[0]}</strong>'s lunch from {minsToTime(pop.startMins).replace(":00","").toLowerCase()} – {minsToTime(pop.endMins).replace(":00","").toLowerCase()}. Their schedules will link automatically.
+                  </div>
+                )}
+
+                {/* Actions */}
+                <div style={{display:"flex",gap:8,marginTop:2}}>
+                  <button onClick={closePopover}
+                    style={{flex:1,padding:"9px 0",borderRadius:10,border:"2px solid #E2E8F0",background:"white",color:"#475569",fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
+                  <button onClick={saveInsBlock} disabled={!pop.staffId}
+                    style={{flex:2,padding:"9px 0",borderRadius:10,border:"none",
+                      background:pop.staffId?`linear-gradient(135deg,${c.border},${c.border}aa)`:"#E2E8F0",
+                      color:pop.staffId?"white":"#94A3B8",fontWeight:800,fontSize:13,
+                      cursor:pop.staffId?"pointer":"default",fontFamily:"inherit"}}>
+                    ✓ Add to Schedule
+                  </button>
+                </div>
+              </div>
+            </div>
+          </>
         );
       })()}
 
