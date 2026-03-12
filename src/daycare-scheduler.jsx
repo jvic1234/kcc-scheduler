@@ -515,6 +515,12 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
     setSchedule(ns); setWeekStart(nw); showToast("✅ Week copied — jumped to next week");
   };
 
+  const clearWeek = () => {
+    const ns={...schedule};
+    staff.forEach(s=>{ for(let d=0;d<7;d++){ delete ns[cellKey(s.id,d)]; }});
+    setSchedule(ns); showToast("🗑 Week cleared");
+  };
+
   const copyDay = (sId,dayIdx,e) => {
     e.stopPropagation(); const data=getCellData(sId,dayIdx);
     if(data){setClipboard({blocks:data.blocks}); showToast("📋 Day copied — click any cell to paste");}
@@ -846,8 +852,9 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
       {/* ── QUICK ACTIONS ── */}
       <div style={{background:"#E8F3E8",padding:"8px 28px",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",borderBottom:"1px solid #D0E8D0"}}>
         <span style={{fontSize:11,fontWeight:800,color:"#4B7A5A",letterSpacing:"0.5px",marginRight:4}}>QUICK ACTIONS:</span>
-        <button onClick={fillFromPrevWeek} style={{background:"white",border:"1.5px solid #40916C",color:"#1B4332",borderRadius:9,padding:"5px 13px",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>⬅️ Fill from Prev Week</button>
-        <button onClick={copyWeekToNext}  style={{background:"white",border:"1.5px solid #40916C",color:"#1B4332",borderRadius:9,padding:"5px 13px",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>➡️ Copy Week to Next</button>
+        <button onClick={()=>setConfirmDelete({type:"fillFromPrev"})} style={{background:"white",border:"1.5px solid #40916C",color:"#1B4332",borderRadius:9,padding:"5px 13px",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>⬅️ Fill from Prev Week</button>
+        <button onClick={()=>setConfirmDelete({type:"copyToNext"})}  style={{background:"white",border:"1.5px solid #40916C",color:"#1B4332",borderRadius:9,padding:"5px 13px",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>➡️ Copy Week to Next</button>
+        <button onClick={()=>setConfirmDelete({type:"clearWeek"})}  style={{background:"white",border:"1.5px solid #DC2626",color:"#DC2626",borderRadius:9,padding:"5px 13px",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>🗑 Clear This Week</button>
         <button onClick={()=>setShowTemplates(true)} style={{background:"white",border:"1.5px solid #9575CD",color:"#512DA8",borderRadius:9,padding:"5px 13px",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>📁 Templates{templates.length>0?` (${templates.length})`:""}</button>
         <div ref={calRef} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6,background:"white",borderRadius:9,padding:"4px 10px",position:"relative",border:"1.5px solid #40916C"}}>
           <button onClick={goToPrev} style={{background:"none",border:"none",color:"#1B4332",cursor:"pointer",fontSize:18,lineHeight:1,padding:"0 3px"}}>‹</button>
@@ -1693,25 +1700,45 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
       {confirmDelete&&(
         <div style={{position:"fixed",inset:0,background:"rgba(15,30,20,0.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:2000,padding:16}} onClick={e=>e.target===e.currentTarget&&setConfirmDelete(null)}>
           <div style={{background:"white",borderRadius:22,padding:32,width:400,maxWidth:"100%",boxShadow:"0 24px 64px rgba(0,0,0,0.3)",textAlign:"center"}}>
-            <div style={{width:56,height:56,borderRadius:"50%",background:"#FEE2E2",display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,margin:"0 auto 16px"}}>🗑️</div>
+            <div style={{width:56,height:56,borderRadius:"50%",background:confirmDelete.type==="clearWeek"?"#FEE2E2":confirmDelete.type==="fillFromPrev"||confirmDelete.type==="copyToNext"?"#FEF3C7":"#FEE2E2",display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,margin:"0 auto 16px"}}>
+              {confirmDelete.type==="fillFromPrev"?"⬅️":confirmDelete.type==="copyToNext"?"➡️":confirmDelete.type==="clearWeek"?"🗑️":"🗑️"}
+            </div>
             <div style={{fontWeight:900,fontSize:20,color:"#1E293B",marginBottom:8}}>
-              {confirmDelete.type==="staff"?"Remove Staff Member?":confirmDelete.type==="room"?"Delete Room?":"Delete Location?"}
+              {confirmDelete.type==="fillFromPrev"?"Fill from Previous Week?"
+              :confirmDelete.type==="copyToNext"?"Copy Week to Next?"
+              :confirmDelete.type==="clearWeek"?"Clear This Week's Schedule?"
+              :confirmDelete.type==="staff"?"Remove Staff Member?"
+              :confirmDelete.type==="room"?"Delete Room?"
+              :"Delete Location?"}
             </div>
             <div style={{fontSize:14,color:"#64748B",marginBottom:6}}>
+              {confirmDelete.type==="fillFromPrev"&&<>Copy all shifts from the previous week into this week. Only empty days will be filled — existing shifts won't be overwritten.</>}
+              {confirmDelete.type==="copyToNext"&&<>Copy this entire week's schedule to next week, then jump to it. Existing shifts on next week will be overwritten.</>}
+              {confirmDelete.type==="clearWeek"&&<>Clear <strong style={{color:"#DC2626"}}>all shifts for every staff member</strong> on the current week ({weekLabel}). This cannot be undone.</>}
               {confirmDelete.type==="staff"&&<>Remove <strong style={{color:"#1E293B"}}>{confirmDelete.name}</strong>? All their scheduled shifts at this location will be deleted.</>}
               {confirmDelete.type==="room"&&<>Delete room <strong style={{color:"#1E293B"}}>{confirmDelete.name}</strong>? It will be cleared from all shifts where it was assigned.</>}
               {confirmDelete.type==="location"&&<>Delete <strong style={{color:"#1E293B"}}>{confirmDelete.name}</strong>? All staff, rooms, and schedules for this location will be permanently removed.</>}
             </div>
-            <div style={{fontSize:12,color:"#94A3B8",marginBottom:24}}>This action cannot be undone.</div>
+            <div style={{fontSize:12,color:"#94A3B8",marginBottom:24}}>
+              {confirmDelete.type==="fillFromPrev"||confirmDelete.type==="copyToNext"?"Shift data will be duplicated with fresh IDs.":"This action cannot be undone."}
+            </div>
             <div style={{display:"flex",gap:10}}>
               <button onClick={()=>setConfirmDelete(null)} style={{flex:1,padding:12,borderRadius:12,border:"2px solid #E2E8F0",background:"white",color:"#475569",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
               <button onClick={()=>{
-                if(confirmDelete.type==="staff")removeStaff(confirmDelete.id);
+                if(confirmDelete.type==="fillFromPrev")fillFromPrevWeek();
+                else if(confirmDelete.type==="copyToNext")copyWeekToNext();
+                else if(confirmDelete.type==="clearWeek")clearWeek();
+                else if(confirmDelete.type==="staff")removeStaff(confirmDelete.id);
                 else if(confirmDelete.type==="room")removeRoom(confirmDelete.id);
                 else removeLoc(confirmDelete.id);
                 setConfirmDelete(null);
-              }} style={{flex:1,padding:12,borderRadius:12,border:"none",background:"linear-gradient(135deg,#DC2626,#EF4444)",color:"white",fontWeight:800,fontSize:14,cursor:"pointer",fontFamily:"inherit",boxShadow:"0 4px 14px rgba(220,38,38,0.3)"}}>
-                {confirmDelete.type==="staff"?"Yes, Remove":confirmDelete.type==="room"?"Yes, Delete":"Yes, Delete Location"}
+              }} style={{flex:1,padding:12,borderRadius:12,border:"none",background:confirmDelete.type==="fillFromPrev"||confirmDelete.type==="copyToNext"?"linear-gradient(135deg,#1B4332,#40916C)":"linear-gradient(135deg,#DC2626,#EF4444)",color:"white",fontWeight:800,fontSize:14,cursor:"pointer",fontFamily:"inherit",boxShadow:confirmDelete.type==="fillFromPrev"||confirmDelete.type==="copyToNext"?"0 4px 14px rgba(27,67,50,0.3)":"0 4px 14px rgba(220,38,38,0.3)"}}>
+                {confirmDelete.type==="fillFromPrev"?"Yes, Fill Week"
+                :confirmDelete.type==="copyToNext"?"Yes, Copy to Next"
+                :confirmDelete.type==="clearWeek"?"Yes, Clear Week"
+                :confirmDelete.type==="staff"?"Yes, Remove"
+                :confirmDelete.type==="room"?"Yes, Delete"
+                :"Yes, Delete Location"}
               </button>
             </div>
           </div>
