@@ -315,11 +315,42 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
     (async()=>{
       try {
         const r=await window.storage.get("kcc-v1");
-        if(r){ const d=JSON.parse(r.value); if(d.locations)setLocations(d.locations); if(d.activeLocId)setActiveLocId(d.activeLocId); if(d.attendance)setAttendance(d.attendance); }
+        if(r){
+          const d=JSON.parse(r.value);
+          if(d.locations) setLocations(d.locations);
+          if(d.activeLocId) setActiveLocId(d.activeLocId);
+          if(d.attendance) setAttendance(d.attendance);
+        }
       } catch(e){}
       setLoaded(true);
     })();
   },[]);
+
+  // ── One-time cleanup: prune orphan lunch blocks on first load ──────────────
+  const cleanupRanRef = useRef(false);
+  useEffect(()=>{
+    if(!loaded||cleanupRanRef.current) return;
+    cleanupRanRef.current=true;
+    // Run reconcile across all locations to remove duplicate/orphan lunch blocks
+    setLocations(prev=>prev.map(loc=>{
+      const cleaned={...loc.schedule};
+      // Build a fake ns keyed by full wiso|staffId|dayIdx
+      // We can't use wiso here (it's the current week) so we scan all keys
+      const keys=Object.keys(cleaned);
+      const staffIds=new Set(loc.staff.map(s=>String(s.id)));
+      keys.forEach(key=>{
+        if(!cleaned[key]?.blocks) return;
+        const allLunch=cleaned[key].blocks.filter(b=>b.room==="Lunch / Break");
+        if(allLunch.length<=1) return;
+        const hasPopulated=allLunch.some(b=>(b.reliefs||[]).length>0);
+        if(!hasPopulated) return;
+        cleaned[key]={...cleaned[key],blocks:cleaned[key].blocks.filter(b=>
+          b.room!=="Lunch / Break"||(b.reliefs||[]).length>0
+        )};
+      });
+      return {...loc,schedule:cleaned};
+    }));
+  },[loaded]);
 
   useEffect(()=>{
     if(!loaded)return;
@@ -528,21 +559,31 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
           const srcKey=`${wiso}|${srcId}|${dayIdx}`;
           const bStart=timeToMins(b.startTime), bEnd=timeToMins(b.endTime);
           if(!ns[srcKey]) ns[srcKey]={blocks:[]};
-          // Find a lunch block that covers this relief window
-          let lunchBlock=ns[srcKey].blocks.find(lb=>
+          const srcBlocks=ns[srcKey].blocks;
+
+          // 1. Find exact match — a lunch block that fully covers this relief window
+          let lunchBlock=srcBlocks.find(lb=>
             IS_LUNCH_ROOM(lb.room||'')&&lb.startTime&&lb.endTime&&
             timeToMins(lb.startTime)<=bStart&&timeToMins(lb.endTime)>=bEnd
           );
-          // Auto-create lunch block if missing
+
+          // 2. No exact match — find any lunch block for this person this day
+          if(!lunchBlock){
+            lunchBlock=srcBlocks.find(lb=>IS_LUNCH_ROOM(lb.room||'')&&lb.startTime&&lb.endTime);
+          }
+
+          // 3. Still nothing — only NOW auto-create
           if(!lunchBlock){
             lunchBlock={...newBlock(b.startTime,b.endTime,'Lunch / Break'),reliefs:[]};
             ns[srcKey]={...ns[srcKey],blocks:sortBlocks([...ns[srcKey].blocks,lunchBlock])};
           }
+
           // Already linked — nothing to do
           const alreadyLinked=(lunchBlock.reliefs||[]).some(r=>
             String(r.staffId)===String(coverer.id)||r.id===b.reliefBlockId
           );
           if(alreadyLinked) return;
+
           // Assign reliefBlockId and reliefNote on the coverer's block if missing
           const reliefId=b.reliefBlockId||`r${Date.now()}${Math.random()}`;
           const srcName=staff.find(s=>String(s.id)===srcId)?.name||"colleague";
@@ -559,6 +600,25 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
         });
       }
     });
+
+    // ── Prune orphan lunch blocks ──────────────────────────────────────────────
+    // If a person has multiple Lunch/Break blocks on the same day and one has
+    // reliefs assigned while another is empty, remove the empty one(s).
+    staff.forEach(s=>{
+      for(let dayIdx=0;dayIdx<7;dayIdx++){
+        const key=`${wiso}|${s.id}|${dayIdx}`;
+        if(!ns[key]?.blocks) continue;
+        const allLunch=ns[key].blocks.filter(b=>IS_LUNCH_ROOM(b.room||''));
+        if(allLunch.length<=1) continue; // nothing to prune
+        const hasPopulated=allLunch.some(b=>(b.reliefs||[]).length>0);
+        if(!hasPopulated) continue; // all empty — user entered them manually, leave alone
+        // Remove lunch blocks that have no reliefs and no manually-set relief coverage
+        ns[key]={...ns[key],blocks:ns[key].blocks.filter(b=>
+          !IS_LUNCH_ROOM(b.room||'')||(b.reliefs||[]).length>0
+        )};
+      }
+    });
+
     return ns;
   };
 
@@ -1734,11 +1794,21 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                         const newRoom=e.target.value;
                         const flds={room:newRoom};
                         if(newRoom&&block.startTime){
-                          const startMins=timeToMins(block.startTime);
-                          const offsetMins=HOURS_EXCLUDED_ROOMS.has(newRoom)?60:240; // 1hr for break, 4hr for rooms
-                          const targetMins=startMins+offsetMins;
-                          const autoEnd=TIMES.find(t=>timeToMins(t)===targetMins);
-                          if(autoEnd)flds.endTime=autoEnd;
+                          if(HOURS_EXCLUDED_ROOMS.has(newRoom)){
+                            // For lunch/break: snap start to the end of the latest preceding work block
+                            const prevWorkEnd=editBlocks
+                              .filter(b=>b.id!==block.id&&b.startTime&&b.endTime&&!HOURS_EXCLUDED_ROOMS.has(b.room)&&b.room)
+                              .reduce((max,b)=>Math.max(max,timeToMins(b.endTime)),0);
+                            const lunchStart=prevWorkEnd>0?prevWorkEnd:timeToMins(block.startTime);
+                            const lunchStartTime=TIMES.find(t=>timeToMins(t)===lunchStart)||block.startTime;
+                            const autoEnd=TIMES.find(t=>timeToMins(t)===lunchStart+60);
+                            flds.startTime=lunchStartTime;
+                            if(autoEnd)flds.endTime=autoEnd;
+                          } else {
+                            const startMins=timeToMins(block.startTime);
+                            const autoEnd=TIMES.find(t=>timeToMins(t)===startMins+240);
+                            if(autoEnd)flds.endTime=autoEnd;
+                          }
                         }
                         updateBlockFields(block.id,flds);
                       }} style={{width:"100%",padding:"9px 11px",borderRadius:9,border:`2px solid ${c.border}`,fontSize:13,fontWeight:700,outline:"none",background:"white",color:block.room?c.text:"#94A3B8",fontFamily:"inherit",cursor:"pointer"}}>
@@ -1777,7 +1847,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                                 <div style={{marginBottom:7}}>
                                   <label style={{fontSize:10,fontWeight:700,color:"#78350F",display:"block",marginBottom:3}}>Staff Member</label>
                                   <select
-                                    value={r.staffId}
+                                    value={String(r.staffId||"")}
                                     onChange={e=>updateOneRelief(r.id,"staffId",e.target.value)}
                                     style={{width:"100%",padding:"7px 9px",borderRadius:7,border:"2px solid #FCD34D",fontSize:12.5,fontWeight:700,outline:"none",background:"white",fontFamily:"inherit",cursor:"pointer",color:r.staffId?"#1C1C1C":"#94A3B8"}}
                                   >
@@ -1786,7 +1856,6 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                                       if(String(s.id)===String(editCell?.sId))return false;
                                       const alreadyPicked=reliefs.some(rv=>rv.id!==r.id&&String(rv.staffId)===String(s.id));
                                       if(alreadyPicked)return false;
-                                      // Check against the specific relief time window, not the whole break
                                       const reliefStart=timeToMins(r.startTime||effectiveBreakStartTime);
                                       const reliefEnd=timeToMins(r.endTime||block.endTime);
                                       const theirBlocks=getCellData(s.id,editCell?.dayIdx)?.blocks||[];
@@ -1797,7 +1866,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                                       });
                                       return !isBusy;
                                     }).map(s=>(
-                                      <option key={s.id} value={s.id}>{s.name}</option>
+                                      <option key={s.id} value={String(s.id)}>{s.name}</option>
                                     ))}
                                   </select>
                                 </div>
