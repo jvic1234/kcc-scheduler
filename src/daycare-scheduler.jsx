@@ -435,6 +435,55 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
     });
   };
 
+  // ── Reconcile relief linkage — fixes order-of-entry issues bidirectionally ──
+  // Scans every block with reliefFor set and ensures the source staff's lunch block
+  // has a matching reliefs[] entry. Auto-creates the lunch block if missing.
+  const IS_LUNCH_ROOM = r => r==="Lunch / Break";
+  const reconcileReliefs = (ns) => {
+    staff.forEach(coverer => {
+      for(let dayIdx=0;dayIdx<7;dayIdx++){
+        const key=`${wiso}|${coverer.id}|${dayIdx}`;
+        const cell=ns[key]; if(!cell?.blocks) continue;
+        cell.blocks.forEach(b=>{
+          if(!b.reliefFor||!b.startTime||!b.endTime) return;
+          const srcId=String(b.reliefFor);
+          const srcKey=`${wiso}|${srcId}|${dayIdx}`;
+          const bStart=timeToMins(b.startTime), bEnd=timeToMins(b.endTime);
+          if(!ns[srcKey]) ns[srcKey]={blocks:[]};
+          // Find a lunch block that covers this relief window
+          let lunchBlock=ns[srcKey].blocks.find(lb=>
+            IS_LUNCH_ROOM(lb.room||'')&&lb.startTime&&lb.endTime&&
+            timeToMins(lb.startTime)<=bStart&&timeToMins(lb.endTime)>=bEnd
+          );
+          // Auto-create lunch block if missing
+          if(!lunchBlock){
+            lunchBlock={...newBlock(b.startTime,b.endTime,'Lunch / Break'),reliefs:[]};
+            ns[srcKey]={...ns[srcKey],blocks:sortBlocks([...ns[srcKey].blocks,lunchBlock])};
+          }
+          // Already linked — nothing to do
+          const alreadyLinked=(lunchBlock.reliefs||[]).some(r=>
+            String(r.staffId)===String(coverer.id)||r.id===b.reliefBlockId
+          );
+          if(alreadyLinked) return;
+          // Assign reliefBlockId and reliefNote on the coverer's block if missing
+          const reliefId=b.reliefBlockId||`r${Date.now()}${Math.random()}`;
+          const srcName=staff.find(s=>String(s.id)===srcId)?.name||"colleague";
+          if(!b.reliefBlockId||!b.reliefNote){
+            ns[key]={...ns[key],blocks:ns[key].blocks.map(bl=>
+              bl.id===b.id?{...bl,reliefBlockId:reliefId,reliefNote:`Relief for ${srcName}`}:bl
+            )};
+          }
+          // Add relief entry to source's lunch block
+          const newEntry={id:reliefId,staffId:coverer.id,startTime:b.startTime,endTime:b.endTime};
+          ns[srcKey]={...ns[srcKey],blocks:ns[srcKey].blocks.map(lb=>
+            lb.id===lunchBlock.id?{...lb,reliefs:[...(lb.reliefs||[]),newEntry]}:lb
+          )};
+        });
+      }
+    });
+    return ns;
+  };
+
   const fillFromPrevWeek = () => {
     let filled=0; const ns={...schedule};
     const prevWiso=new Date(weekStart); prevWiso.setDate(prevWiso.getDate()-7);
@@ -538,7 +587,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
       }
     });
 
-    setSchedule(ns); setEditCell(null);
+    setSchedule(reconcileReliefs(ns)); setEditCell(null);
   };
   const clearCell = () => {
     const ns={...schedule};
@@ -1425,7 +1474,70 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                         );
                       })()}
                     </div>
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                    {/* ── Covering for someone's lunch (enter from coverer's side) ── */}
+                    {block.room&&!HOURS_EXCLUDED_ROOMS.has(block.room)&&block.startTime&&block.endTime&&(()=>{
+                      const hasCovering=!!block.reliefFor;
+                      // Who is being covered — find staff that have a lunch block overlapping this block's time
+                      const bStart=timeToMins(block.startTime),bEnd=timeToMins(block.endTime);
+                      const potentialTargets=staff.filter(s=>{
+                        if(String(s.id)===String(editCell?.sId))return false;
+                        // They have a lunch/break block in this window, OR no block at all (lunch may not exist yet)
+                        const theirBlocks=getCellData(s.id,editCell?.dayIdx)?.blocks||[];
+                        const hasLunch=theirBlocks.some(tb=>IS_LUNCH_ROOM(tb.room||'')&&tb.startTime&&tb.endTime&&
+                          timeToMins(tb.startTime)<bEnd&&timeToMins(tb.endTime)>bStart);
+                        // Include everyone — if they have a lunch block in range OR are unlisted (lunch not yet entered)
+                        return true;
+                      });
+                      return(
+                        <div style={{marginTop:8,background:hasCovering?"#F0FDF4":"#F8FAFC",border:`1.5px solid ${hasCovering?"#6EE7B7":"#E2E8F0"}`,borderRadius:9,padding:"9px 12px"}}>
+                          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:hasCovering?8:0}}>
+                            <div style={{fontSize:10.5,fontWeight:800,color:hasCovering?"#065F46":"#94A3B8",letterSpacing:"0.4px"}}>
+                              {hasCovering?"✅ COVERING LUNCH FOR":"🔄 COVERING SOMEONE'S LUNCH?"}
+                            </div>
+                            {hasCovering?(
+                              <button onClick={()=>updateBlockFields(block.id,{reliefFor:null,reliefNote:"",reliefBlockId:null})}
+                                style={{background:"#FFF5F5",border:"1px solid #FEE2E2",borderRadius:5,padding:"1px 7px",fontSize:10,fontWeight:800,color:"#EF4444",cursor:"pointer",fontFamily:"inherit"}}>Remove</button>
+                            ):(
+                              <button onClick={()=>updateBlockFields(block.id,{reliefFor:"__pending__",reliefNote:"",reliefBlockId:null})}
+                                style={{background:"white",border:"1.5px solid #CBD5E1",borderRadius:6,padding:"2px 9px",fontSize:10,fontWeight:800,color:"#475569",cursor:"pointer",fontFamily:"inherit"}}>+ Assign</button>
+                            )}
+                          </div>
+                          {hasCovering&&(
+                            <div>
+                              <label style={{fontSize:10,fontWeight:700,color:"#065F46",display:"block",marginBottom:3}}>Staff whose lunch I'm covering</label>
+                              <select
+                                value={String(block.reliefFor)==="__pending__"?"":String(block.reliefFor)}
+                                onChange={e=>{
+                                  const tId=e.target.value;
+                                  const tName=staff.find(s=>String(s.id)===tId)?.name||"";
+                                  updateBlockFields(block.id,{reliefFor:tId,reliefNote:`Relief for ${tName}`,reliefBlockId:block.reliefBlockId||`r${Date.now()}${Math.random()}`});
+                                }}
+                                style={{width:"100%",padding:"7px 9px",borderRadius:7,border:"2px solid #6EE7B7",fontSize:12.5,fontWeight:700,outline:"none",background:"white",fontFamily:"inherit",cursor:"pointer",color:String(block.reliefFor)==="__pending__"?"#94A3B8":"#1C1C1C"}}
+                              >
+                                <option value="">— Select staff —</option>
+                                {staff.filter(s=>String(s.id)!==String(editCell?.sId)).map(s=>(
+                                  <option key={s.id} value={s.id}>{s.name}</option>
+                                ))}
+                              </select>
+                              {block.reliefFor&&String(block.reliefFor)!=="__pending__"&&(()=>{
+                                const tName=staff.find(s=>String(s.id)===String(block.reliefFor))?.name||"";
+                                const theirBlocks=getCellData(block.reliefFor,editCell?.dayIdx)?.blocks||[];
+                                const lunchExists=theirBlocks.some(tb=>IS_LUNCH_ROOM(tb.room||'')&&tb.startTime&&tb.endTime&&
+                                  timeToMins(tb.startTime)<=bStart&&timeToMins(tb.endTime)>=bEnd);
+                                return(
+                                  <div style={{marginTop:5,fontSize:10,fontWeight:700,color:lunchExists?"#065F46":"#92400E",background:lunchExists?"#DCFCE7":"#FEF3C7",borderRadius:5,padding:"3px 8px"}}>
+                                    {lunchExists
+                                      ?`✅ ${tName.split(" ")[0]}'s Lunch / Break block exists — will be linked on save`
+                                      :`⚠️ ${tName.split(" ")[0]} has no lunch block yet — one will be auto-created on save (${block.startTime}–${block.endTime})`}
+                                  </div>
+                                );
+                              })()}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:8}}>
                       <div>
                         <label style={{fontSize:10.5,fontWeight:800,color:"#6B7280",display:"block",marginBottom:5,letterSpacing:"0.5px"}}>START TIME</label>
                         <select value={block.startTime} onChange={e=>{ const ns=e.target.value; const flds={startTime:ns}; if(timeToMins(block.endTime)<=timeToMins(ns)){const i=TIMES.indexOf(ns);flds.endTime=TIMES[Math.min(i+1,TIMES.length-1)];} updateBlockFields(block.id,flds); }} style={{width:"100%",padding:"9px 10px",borderRadius:9,border:"2px solid rgba(0,0,0,0.08)",fontSize:13,fontWeight:600,outline:"none",background:"white",fontFamily:"inherit",cursor:"pointer",color:"#334155"}}>
