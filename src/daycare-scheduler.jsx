@@ -1120,26 +1120,27 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
         const hiddenRooms = insightRoomFilter || new Set();
 
         // Lane assignment:
-        // - Each unique staff member gets their own dedicated lane (order of first appearance)
-        // - Relief blocks (reliefFor set) inherit the lane of whoever they're covering,
-        //   so they visually fill the gap in that person's row rather than stacking separately
+        // - Lanes are assigned in INPUT ORDER (caller pre-sorts by shift duration desc)
+        //   so the longest-shift staff always gets lane 0, next longest lane 1, etc.
+        // - Relief blocks inherit the lane of whoever they're covering.
+        // - Final output is sorted by start time for correct visual left→right rendering.
         const buildLanes = (blocks) => {
-          const sorted=[...blocks].sort((a,b)=>timeToMins(a.startTime)-timeToMins(b.startTime));
-          // First pass: assign a lane index to each unique non-relief staff member
+          // First pass: assign lane by order of first appearance in input (duration order)
           const staffLane={};
-          sorted.forEach(rb=>{
+          blocks.forEach(rb=>{
             if(!rb.isRelief&&staffLane[String(rb.staffId)]===undefined){
               staffLane[String(rb.staffId)]=Object.keys(staffLane).length;
             }
           });
-          // Second pass: relief blocks take the lane of who they cover, regular blocks take their own lane
-          return sorted.map(rb=>{
+          // Second pass: assign lanes, then sort by start time for rendering
+          const withLanes=blocks.map(rb=>{
             if(rb.isRelief&&rb.reliefFor!=null){
               const coveredLane=staffLane[String(rb.reliefFor)];
               return{...rb,lane:coveredLane!==undefined?coveredLane:Object.keys(staffLane).length};
             }
             return{...rb,lane:staffLane[String(rb.staffId)]??0};
           });
+          return withLanes.sort((a,b)=>timeToMins(a.startTime)-timeToMins(b.startTime));
         };
 
         const roomStaffMap = {};
