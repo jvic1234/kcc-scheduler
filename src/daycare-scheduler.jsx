@@ -212,6 +212,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
   const [toast,            setToast]            = useState("");
   const [saveStatus,       setSaveStatus]       = useState("");
   const [confirmDelete,    setConfirmDelete]    = useState(null);
+  const [showClearModal,   setShowClearModal]   = useState(false);
   const [showAddStaff,     setShowAddStaff]     = useState(false);
   const [showStaffInfo,    setShowStaffInfo]    = useState(null);
   const [newStaffEmail,    setNewStaffEmail]    = useState("");
@@ -519,6 +520,11 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
     const ns={...schedule};
     staff.forEach(s=>{ for(let d=0;d<7;d++){ delete ns[cellKey(s.id,d)]; }});
     setSchedule(ns); showToast("🗑 Week cleared");
+  };
+  const clearDay = (dayIdx) => {
+    const ns={...schedule};
+    staff.forEach(s=>{ delete ns[cellKey(s.id,dayIdx)]; });
+    setSchedule(ns); showToast(`🗑 ${DAY_SHORT[dayIdx]} cleared`);
   };
 
   const copyDay = (sId,dayIdx,e) => {
@@ -854,7 +860,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
         <span style={{fontSize:11,fontWeight:800,color:"#4B7A5A",letterSpacing:"0.5px",marginRight:4}}>QUICK ACTIONS:</span>
         <button onClick={()=>setConfirmDelete({type:"fillFromPrev"})} style={{background:"white",border:"1.5px solid #40916C",color:"#1B4332",borderRadius:9,padding:"5px 13px",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>⬅️ Fill from Prev Week</button>
         <button onClick={()=>setConfirmDelete({type:"copyToNext"})}  style={{background:"white",border:"1.5px solid #40916C",color:"#1B4332",borderRadius:9,padding:"5px 13px",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>➡️ Copy Week to Next</button>
-        <button onClick={()=>setConfirmDelete({type:"clearWeek"})}  style={{background:"white",border:"1.5px solid #DC2626",color:"#DC2626",borderRadius:9,padding:"5px 13px",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>🗑 Clear This Week</button>
+        <button onClick={()=>setShowClearModal(true)}  style={{background:"white",border:"1.5px solid #DC2626",color:"#DC2626",borderRadius:9,padding:"5px 13px",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>🗑 Clear Day / Week</button>
         <button onClick={()=>setShowTemplates(true)} style={{background:"white",border:"1.5px solid #9575CD",color:"#512DA8",borderRadius:9,padding:"5px 13px",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>📁 Templates{templates.length>0?` (${templates.length})`:""}</button>
         <div ref={calRef} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6,background:"white",borderRadius:9,padding:"4px 10px",position:"relative",border:"1.5px solid #40916C"}}>
           <button onClick={goToPrev} style={{background:"none",border:"none",color:"#1B4332",cursor:"pointer",fontSize:18,lineHeight:1,padding:"0 3px"}}>‹</button>
@@ -1697,16 +1703,66 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
       )}
 
       {/* ── CONFIRM DELETE MODAL ── */}
+      {/* ── CLEAR DAY / WEEK PICKER ── */}
+      {showClearModal&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(15,30,20,0.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:2000,padding:16}} onClick={e=>e.target===e.currentTarget&&setShowClearModal(false)}>
+          <div style={{background:"white",borderRadius:22,padding:28,width:420,maxWidth:"100%",boxShadow:"0 24px 64px rgba(0,0,0,0.3)"}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
+              <div style={{fontWeight:900,fontSize:20,color:"#1E293B"}}>🗑 Clear Day / Week</div>
+              <button onClick={()=>setShowClearModal(false)} style={{background:"#F1F5F9",border:"none",borderRadius:8,width:30,height:30,cursor:"pointer",fontSize:16,color:"#64748B",display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
+            </div>
+            <div style={{fontSize:13,color:"#64748B",marginBottom:18}}>Choose a specific day to clear, or clear the entire week. All staff shifts for the selection will be removed.</div>
+
+            {/* Day buttons */}
+            <div style={{fontSize:10.5,fontWeight:800,color:"#94A3B8",letterSpacing:"0.5px",marginBottom:8}}>CLEAR A SPECIFIC DAY</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:5,marginBottom:18}}>
+              {DAY_SHORT.map((d,i)=>{
+                const date=weekDates[i];
+                const isToday=date?.toDateString()===new Date().toDateString();
+                const hasShifts=staff.some(s=>getCellData(s.id,i)?.blocks?.length>0);
+                const label=`${d}, ${formatDate(date)}`;
+                return(
+                  <button key={i} onClick={()=>{ setShowClearModal(false); setConfirmDelete({type:"clearDay",dayIdx:i,label}); }}
+                    disabled={!hasShifts}
+                    style={{
+                      display:"flex",flexDirection:"column",alignItems:"center",padding:"8px 4px",
+                      borderRadius:10,border:`2px solid ${isToday?"#40916C":hasShifts?"#FCA5A5":"#E2E8F0"}`,
+                      background:isToday?"#F0FDF4":hasShifts?"#FFF5F5":"#F8FAFC",
+                      cursor:hasShifts?"pointer":"default",fontFamily:"inherit",
+                      opacity:hasShifts?1:0.4,
+                    }}>
+                    <span style={{fontSize:11,fontWeight:800,color:isToday?"#1B4332":hasShifts?"#DC2626":"#94A3B8"}}>{d}</span>
+                    <span style={{fontSize:9,fontWeight:600,color:"#94A3B8",marginTop:2}}>{formatDate(date)}</span>
+                    {isToday&&<span style={{fontSize:8,fontWeight:900,color:"#40916C",marginTop:2,letterSpacing:"0.3px"}}>TODAY</span>}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Divider */}
+            <div style={{height:1,background:"#E2E8F0",marginBottom:16}}/>
+
+            {/* Clear entire week */}
+            <div style={{fontSize:10.5,fontWeight:800,color:"#94A3B8",letterSpacing:"0.5px",marginBottom:8}}>CLEAR ENTIRE WEEK</div>
+            <button onClick={()=>{ setShowClearModal(false); setConfirmDelete({type:"clearWeek"}); }}
+              style={{width:"100%",padding:"12px 16px",borderRadius:12,border:"2px solid #FCA5A5",background:"#FFF5F5",color:"#DC2626",fontWeight:800,fontSize:13,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+              🗑 Clear All Days — {weekLabel}
+            </button>
+          </div>
+        </div>
+      )}
+
       {confirmDelete&&(
         <div style={{position:"fixed",inset:0,background:"rgba(15,30,20,0.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:2000,padding:16}} onClick={e=>e.target===e.currentTarget&&setConfirmDelete(null)}>
           <div style={{background:"white",borderRadius:22,padding:32,width:400,maxWidth:"100%",boxShadow:"0 24px 64px rgba(0,0,0,0.3)",textAlign:"center"}}>
-            <div style={{width:56,height:56,borderRadius:"50%",background:confirmDelete.type==="clearWeek"?"#FEE2E2":confirmDelete.type==="fillFromPrev"||confirmDelete.type==="copyToNext"?"#FEF3C7":"#FEE2E2",display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,margin:"0 auto 16px"}}>
-              {confirmDelete.type==="fillFromPrev"?"⬅️":confirmDelete.type==="copyToNext"?"➡️":confirmDelete.type==="clearWeek"?"🗑️":"🗑️"}
+            <div style={{width:56,height:56,borderRadius:"50%",background:confirmDelete.type==="clearWeek"||confirmDelete.type==="clearDay"?"#FEE2E2":confirmDelete.type==="fillFromPrev"||confirmDelete.type==="copyToNext"?"#FEF3C7":"#FEE2E2",display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,margin:"0 auto 16px"}}>
+              {confirmDelete.type==="fillFromPrev"?"⬅️":confirmDelete.type==="copyToNext"?"➡️":confirmDelete.type==="clearWeek"||confirmDelete.type==="clearDay"?"🗑️":"🗑️"}
             </div>
             <div style={{fontWeight:900,fontSize:20,color:"#1E293B",marginBottom:8}}>
               {confirmDelete.type==="fillFromPrev"?"Fill from Previous Week?"
               :confirmDelete.type==="copyToNext"?"Copy Week to Next?"
-              :confirmDelete.type==="clearWeek"?"Clear This Week's Schedule?"
+              :confirmDelete.type==="clearWeek"?"Clear Entire Week?"
+              :confirmDelete.type==="clearDay"?`Clear ${confirmDelete.label}?`
               :confirmDelete.type==="staff"?"Remove Staff Member?"
               :confirmDelete.type==="room"?"Delete Room?"
               :"Delete Location?"}
@@ -1715,6 +1771,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
               {confirmDelete.type==="fillFromPrev"&&<>Copy all shifts from the previous week into this week. Only empty days will be filled — existing shifts won't be overwritten.</>}
               {confirmDelete.type==="copyToNext"&&<>Copy this entire week's schedule to next week, then jump to it. Existing shifts on next week will be overwritten.</>}
               {confirmDelete.type==="clearWeek"&&<>Clear <strong style={{color:"#DC2626"}}>all shifts for every staff member</strong> on the current week ({weekLabel}). This cannot be undone.</>}
+              {confirmDelete.type==="clearDay"&&<>Clear <strong style={{color:"#DC2626"}}>all shifts for every staff member</strong> on <strong style={{color:"#1E293B"}}>{confirmDelete.label}</strong>. This cannot be undone.</>}
               {confirmDelete.type==="staff"&&<>Remove <strong style={{color:"#1E293B"}}>{confirmDelete.name}</strong>? All their scheduled shifts at this location will be deleted.</>}
               {confirmDelete.type==="room"&&<>Delete room <strong style={{color:"#1E293B"}}>{confirmDelete.name}</strong>? It will be cleared from all shifts where it was assigned.</>}
               {confirmDelete.type==="location"&&<>Delete <strong style={{color:"#1E293B"}}>{confirmDelete.name}</strong>? All staff, rooms, and schedules for this location will be permanently removed.</>}
@@ -1728,6 +1785,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                 if(confirmDelete.type==="fillFromPrev")fillFromPrevWeek();
                 else if(confirmDelete.type==="copyToNext")copyWeekToNext();
                 else if(confirmDelete.type==="clearWeek")clearWeek();
+                else if(confirmDelete.type==="clearDay")clearDay(confirmDelete.dayIdx);
                 else if(confirmDelete.type==="staff")removeStaff(confirmDelete.id);
                 else if(confirmDelete.type==="room")removeRoom(confirmDelete.id);
                 else removeLoc(confirmDelete.id);
@@ -1735,7 +1793,8 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
               }} style={{flex:1,padding:12,borderRadius:12,border:"none",background:confirmDelete.type==="fillFromPrev"||confirmDelete.type==="copyToNext"?"linear-gradient(135deg,#1B4332,#40916C)":"linear-gradient(135deg,#DC2626,#EF4444)",color:"white",fontWeight:800,fontSize:14,cursor:"pointer",fontFamily:"inherit",boxShadow:confirmDelete.type==="fillFromPrev"||confirmDelete.type==="copyToNext"?"0 4px 14px rgba(27,67,50,0.3)":"0 4px 14px rgba(220,38,38,0.3)"}}>
                 {confirmDelete.type==="fillFromPrev"?"Yes, Fill Week"
                 :confirmDelete.type==="copyToNext"?"Yes, Copy to Next"
-                :confirmDelete.type==="clearWeek"?"Yes, Clear Week"
+                :confirmDelete.type==="clearWeek"?"Yes, Clear Entire Week"
+                :confirmDelete.type==="clearDay"?`Yes, Clear ${confirmDelete.label.split(",")[0]}`
                 :confirmDelete.type==="staff"?"Yes, Remove"
                 :confirmDelete.type==="room"?"Yes, Delete"
                 :"Yes, Delete Location"}
