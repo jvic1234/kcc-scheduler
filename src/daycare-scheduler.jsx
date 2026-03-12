@@ -50,8 +50,8 @@ const HOSTED_URL = "https://kcc-scheduler.vercel.app"; // e.g. https://schedule.
 const LOC_COLORS = ["#1E3A8A","#7DC52A","#E8417A","#4BBDE8","#F5A623","#6A1B9A","#00695C","#37474F"];
 
 // Rooms that don't count toward worked hours
-const HOURS_EXCLUDED_ROOMS = new Set(["Lunch / Break", "Vacation"]);
-const PROTECTED_ROOMS      = new Set(["Lunch / Break"]); // cannot be deleted
+const HOURS_EXCLUDED_ROOMS = new Set(["Lunch / Break", "Vacation", "Sick"]);
+const PROTECTED_ROOMS      = new Set(["Lunch / Break", "Sick"]); // cannot be deleted
 
 const DEFAULT_ROOMS = () => ([
   { id: Date.now()+1, name:"Infant Room",    colorIdx:0 },
@@ -63,6 +63,7 @@ const DEFAULT_ROOMS = () => ([
   { id: Date.now()+7, name:"Lunch / Break",  colorIdx:6 },
   { id: Date.now()+8, name:"Kitchen",        colorIdx:7 },
   { id: Date.now()+9, name:"Vacation",       colorIdx:8 },
+  { id: Date.now()+10, name:"Sick",          colorIdx:3 },
 ]);
 
 const INITIAL_LOCATIONS = [
@@ -236,8 +237,9 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
   const [calViewMonth,     setCalViewMonth]     = useState(()=>{ const n=new Date(); return new Date(n.getFullYear(),n.getMonth(),1); });
   const [showInsights,     setShowInsights]     = useState(false);
   const [insightDayIdx,    setInsightDayIdx]    = useState(()=>{ const t=new Date(); const d=t.getDay(); return d===0?6:d-1; });
-  const [insightRoomFilter,setInsightRoomFilter]= useState(null); // Set of hidden room names
-  const [insightRoomOrder, setInsightRoomOrder] = useState(null); // null = use rooms order
+  const [insightRoomFilter,setInsightRoomFilter]= useState(null);
+  const [insightRoomOrder, setInsightRoomOrder] = useState(null);
+  const [sickModal,        setSickModal]        = useState(null); // {staffId, dayIdx}
 
   const calRef          = useRef(null);
   const isRemoteUpdate  = useRef(false);
@@ -975,9 +977,9 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                       <div style={{flex:1,minWidth:0}}>
                         <div style={{background:c.bg,border:`1.5px solid ${c.border}`,borderRadius:8,padding:"5px 8px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:4}}>
                           <span style={{fontSize:10.5,fontWeight:800,color:c.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{room.name}</span>
-                          <button onClick={()=>toggleHideRoom(room.name)} title={isHidden?"Show":"Hide"}
-                            style={{background:"none",border:"none",cursor:"pointer",fontSize:11,color:c.border,flexShrink:0,padding:0,lineHeight:1,opacity:0.7}}>
-                            {isHidden?"👁":"✕"}
+                          <button onClick={()=>toggleHideRoom(room.name)} title={isHidden?"Show room":"Hide room"}
+                            style={{background:"none",border:"none",cursor:"pointer",fontSize:12,color:isHidden?c.border:"#94A3B8",flexShrink:0,padding:0,lineHeight:1}}>
+                            {isHidden?"👁":"🙈"}
                           </button>
                         </div>
                       </div>
@@ -1078,6 +1080,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                           <div style={{display:"flex",gap:4,marginTop:5}}>
                             <button onClick={e=>{e.stopPropagation();setShowStaffInfo(s);}} title="View/edit staff info & calendar" style={{background:"#EEF2FF",border:"1px solid #C7D2FE",borderRadius:6,padding:"2px 7px",fontSize:10,fontWeight:800,color:"#1E3A8A",cursor:"pointer",fontFamily:"inherit"}}>✉️</button>
                             <button onClick={e=>handleStaffPrint(s,e)} style={{background:"#F0F7F4",border:"1px solid #D0E8D0",borderRadius:6,padding:"2px 7px",fontSize:10,fontWeight:800,color:"#2D6A4F",cursor:"pointer",fontFamily:"inherit"}}>🖨️</button>
+                            <button onClick={()=>{ const t=new Date(); const d=t.getDay(); const todayIdx=d===0?6:d-1; setSickModal({staffId:s.id,dayIdx:todayIdx}); }} title="Mark sick — generates cover suggestions for today" style={{background:"#FFF7ED",border:"1px solid #FED7AA",borderRadius:6,padding:"2px 7px",fontSize:10,fontWeight:800,color:"#C2410C",cursor:"pointer",fontFamily:"inherit"}}>🤒 Sick</button>
                             <button onClick={()=>setConfirmDelete({type:"staff",id:s.id,name:s.name})} style={{background:"#FFF5F5",border:"1px solid #FEE2E2",borderRadius:6,padding:"2px 7px",fontSize:10,fontWeight:800,color:"#EF4444",cursor:"pointer",fontFamily:"inherit"}}>× Remove</button>
                           </div>
                         </div>
@@ -1708,6 +1711,155 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
       })()}
 
       <style>{`* { box-sizing: border-box; } select { -webkit-appearance: auto; } @media print { body { background: white !important; } button { display: none !important; } }`}</style>
+
+      {/* ── SICK DAY MODAL ── */}
+      {sickModal&&(()=>{
+        const sickS=staff.find(s=>String(s.id)===String(sickModal.staffId));
+        if(!sickS) return null;
+        const dayIdx=sickModal.dayIdx;
+        const todayDate=weekDates[dayIdx];
+        const dayLabel=todayDate?`${DAY_SHORT[dayIdx]} ${formatDate(todayDate)}`:"Today";
+        const sickBlocks=(getCellData(sickS.id,dayIdx)?.blocks||[]).filter(b=>b.room&&b.startTime&&b.endTime&&b.room!=="Sick");
+
+        // Get suggestions for a block — scheduled staff first, then unscheduled
+        const getSuggestions = (block) => {
+          const bStart=timeToMins(block.startTime), bEnd=timeToMins(block.endTime);
+          const scored=[];
+          staff.forEach((s,si)=>{
+            if(String(s.id)===String(sickS.id)) return;
+            const theirBlocks=(getCellData(s.id,dayIdx)?.blocks||[]);
+            const isScheduled=theirBlocks.some(b=>b.room&&b.startTime&&b.endTime&&!HOURS_EXCLUDED_ROOMS.has(b.room));
+            // Check if they're free during this block
+            const isBusy=theirBlocks.some(b=>{
+              if(!b.startTime||!b.endTime) return false;
+              return timeToMins(b.startTime)<bEnd&&timeToMins(b.endTime)>bStart;
+            });
+            if(isBusy) return;
+            const weekHrs=Math.round(staffWeekMins(s.id)/60*10)/10;
+            scored.push({s,si,isScheduled,weekHrs});
+          });
+          // Sort: scheduled first, then by fewest hours (most room to take on more)
+          scored.sort((a,b)=>{ if(a.isScheduled!==b.isScheduled) return a.isScheduled?-1:1; return a.weekHrs-b.weekHrs; });
+          return scored.slice(0,4);
+        };
+
+        // Apply a suggestion — assign the block to a different staff member, mark sick staff as Sick
+        const applySuggestion = (block, targetStaffId) => {
+          const wKey=wiso;
+          const sKey=`${wKey}|${sickS.id}|${dayIdx}`;
+          const tKey=`${wKey}|${targetStaffId}|${dayIdx}`;
+          setLocations(prev=>prev.map(loc=>{
+            if(loc.id!==activeLocId) return loc;
+            const sched={...loc.schedule};
+            // Replace the sick staff's block with Sick marker
+            const sickCell=sched[sKey]||{blocks:[]};
+            sched[sKey]={...sickCell,blocks:sickCell.blocks.map(b=>
+              b.id===block.id?{...b,room:"Sick"}:b
+            )};
+            // Add the block to target staff's schedule
+            const tCell=sched[tKey]||{blocks:[]};
+            const newB={...block,id:Date.now()+Math.random(),reliefNote:`Covering for ${sickS.name}`,reliefs:[]};
+            sched[tKey]={...tCell,blocks:sortBlocks([...tCell.blocks,newB])};
+            return{...loc,schedule:sched};
+          }));
+        };
+
+        // Mark all blocks as Sick (if no suggestions applied)
+        const markAllSick = () => {
+          const wKey=wiso;
+          const sKey=`${wKey}|${sickS.id}|${dayIdx}`;
+          setLocations(prev=>prev.map(loc=>{
+            if(loc.id!==activeLocId) return loc;
+            const sched={...loc.schedule};
+            const cell=sched[sKey]||{blocks:[]};
+            const sickStart=sickBlocks[0]?.startTime||"6:00 AM";
+            const sickEnd=sickBlocks[sickBlocks.length-1]?.endTime||"6:00 PM";
+            sched[sKey]={...cell,blocks:[{...newBlock(sickStart,sickEnd,"Sick"),id:Date.now()}]};
+            return{...loc,schedule:sched};
+          }));
+          setSickModal(null);
+        };
+
+        return(
+          <div style={{position:"fixed",inset:0,background:"rgba(15,23,42,0.6)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1100,padding:16}} onClick={e=>e.target===e.currentTarget&&setSickModal(null)}>
+            <div style={{background:"white",borderRadius:22,width:600,maxWidth:"100%",maxHeight:"90vh",overflowY:"auto",boxShadow:"0 24px 64px rgba(0,0,0,0.3)"}}>
+              {/* Header */}
+              <div style={{background:"linear-gradient(135deg,#7C2D12,#C2410C)",padding:"20px 24px",borderRadius:"22px 22px 0 0",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                <div>
+                  <div style={{color:"white",fontWeight:900,fontSize:18}}>🤒 Sick Day — {sickS.name}</div>
+                  <div style={{color:"rgba(255,255,255,0.75)",fontSize:12,marginTop:3}}>{dayLabel} · {sickBlocks.length} block{sickBlocks.length!==1?"s":""} to cover</div>
+                </div>
+                <button onClick={()=>setSickModal(null)} style={{background:"rgba(255,255,255,0.15)",border:"none",borderRadius:8,width:30,height:30,cursor:"pointer",fontSize:16,color:"white",display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
+              </div>
+
+              <div style={{padding:"20px 24px"}}>
+                {sickBlocks.length===0?(
+                  <div style={{textAlign:"center",padding:"30px 0",color:"#94A3B8"}}>
+                    <div style={{fontSize:32,marginBottom:8}}>😌</div>
+                    <div style={{fontSize:14,fontWeight:700}}>{sickS.name} has no shifts scheduled for {dayLabel}.</div>
+                    <button onClick={()=>setSickModal(null)} style={{marginTop:16,padding:"9px 20px",borderRadius:10,border:"none",background:"#F1F5F9",color:"#475569",fontWeight:800,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Close</button>
+                  </div>
+                ):(
+                  <>
+                    <div style={{fontSize:12,color:"#64748B",fontWeight:600,marginBottom:16}}>
+                      Select a staff member to cover each block. Applying a suggestion will add that block to their schedule and mark {sickS.name.split(" ")[0]}'s shift as Sick.
+                    </div>
+
+                    {sickBlocks.map((block,bi)=>{
+                      const c=rc(block.room);
+                      const suggestions=getSuggestions(block);
+                      const alreadyMarked=block.room==="Sick";
+                      return(
+                        <div key={block.id} style={{background:"#F8FAFC",border:"1.5px solid #E2E8F0",borderRadius:14,padding:"14px 16px",marginBottom:12}}>
+                          {/* Block header */}
+                          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+                            <div style={{background:c.bg,border:`1.5px solid ${c.border}`,borderRadius:7,padding:"4px 10px",fontSize:12,fontWeight:800,color:c.text}}>{block.room}</div>
+                            <div style={{fontSize:12,fontWeight:700,color:"#475569"}}>{block.startTime} – {block.endTime}</div>
+                            {alreadyMarked&&<span style={{fontSize:11,fontWeight:800,color:"#16A34A",background:"#DCFCE7",padding:"2px 8px",borderRadius:6}}>✓ Covered</span>}
+                          </div>
+
+                          {/* Suggestions */}
+                          {!alreadyMarked&&(suggestions.length===0?(
+                            <div style={{fontSize:12,color:"#94A3B8",fontStyle:"italic"}}>No available staff found for this time slot.</div>
+                          ):(
+                            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                              {suggestions.map(({s,si,isScheduled,weekHrs})=>(
+                                <div key={s.id} style={{display:"flex",alignItems:"center",gap:10,background:"white",border:"1.5px solid #E2E8F0",borderRadius:10,padding:"8px 12px"}}>
+                                  <div style={{width:28,height:28,borderRadius:"50%",background:getAvatarColor(si),display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:900,color:"white",flexShrink:0}}>{initials(s.name)}</div>
+                                  <div style={{flex:1,minWidth:0}}>
+                                    <div style={{fontSize:12,fontWeight:800,color:"#1E293B"}}>{s.name}</div>
+                                    <div style={{display:"flex",gap:6,marginTop:2}}>
+                                      {isScheduled
+                                        ?<span style={{fontSize:10,fontWeight:700,color:"#1B4332",background:"#D1FAE5",borderRadius:5,padding:"1px 6px"}}>✓ Already working</span>
+                                        :<span style={{fontSize:10,fontWeight:700,color:"#92400E",background:"#FEF3C7",borderRadius:5,padding:"1px 6px"}}>📞 Call-in</span>
+                                      }
+                                      <span style={{fontSize:10,color:"#64748B",fontWeight:600}}>{weekHrs}h this week</span>
+                                    </div>
+                                  </div>
+                                  <button onClick={()=>applySuggestion(block,s.id)} style={{background:"linear-gradient(135deg,#1B4332,#40916C)",color:"white",border:"none",borderRadius:8,padding:"6px 14px",fontSize:11,fontWeight:800,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>
+                                    Apply ✓
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })}
+
+                    <div style={{display:"flex",gap:10,marginTop:4}}>
+                      <button onClick={markAllSick} style={{flex:1,padding:"11px 0",borderRadius:12,border:"2px solid #FED7AA",background:"#FFF7ED",color:"#C2410C",fontWeight:800,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>
+                        🤒 Just mark {sickS.name.split(" ")[0]} sick (no replacements)
+                      </button>
+                      <button onClick={()=>setSickModal(null)} style={{padding:"11px 20px",borderRadius:12,border:"none",background:"#F1F5F9",color:"#475569",fontWeight:800,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Done</button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── ATTENDANCE MODAL ── */}
       {showAttendance&&(
