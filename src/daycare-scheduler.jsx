@@ -110,8 +110,11 @@ function formatDateLong(d) { return d.toLocaleDateString("en-US",{weekday:"long"
 function getWeekDates(ws)  { return DAYS.map((_,i)=>{ const d=new Date(ws); d.setDate(d.getDate()+i); return d; }); }
 function getAvatarColor(idx){ return AVATAR_COLORS[idx % AVATAR_COLORS.length]; }
 function initials(name)    { return name.split(" ").map(n=>n[0]).join("").slice(0,2).toUpperCase(); }
-function newBlock(s="8:00 AM",e="4:00 PM",r="") { return { id:Date.now()+Math.random(), startTime:s, endTime:e, room:r, reliefs:[] }; }
-function newRelief(s="",e="") { return { id:Date.now()+Math.random(), staffId:"", startTime:s, endTime:e }; }
+let _idCounter = Date.now();
+function uid() { return ++_idCounter + Math.random(); }
+
+function newBlock(s="8:00 AM",e="4:00 PM",r="") { return { id:uid(), startTime:s, endTime:e, room:r, reliefs:[] }; }
+function newRelief(s="",e="") { return { id:uid(), staffId:"", startTime:s, endTime:e }; }
 function timeToMins(t) {
   const [time,ap]=t.split(" "); let [h,m]=time.split(":").map(Number);
   if(ap==="PM"&&h!==12)h+=12; if(ap==="AM"&&h===12)h=0; return h*60+m;
@@ -217,6 +220,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
   const [saveStatus,       setSaveStatus]       = useState("");
   const [confirmDelete,    setConfirmDelete]    = useState(null);
   const [showClearModal,   setShowClearModal]   = useState(false);
+  const [copyPrevModal,    setCopyPrevModal]    = useState(null); // null | {step:'pick'} | {step:'confirm-week'} | {step:'pickDay',fromDay,toDay} | {step:'confirm-day',fromDay,toDay}
   const [showAddStaff,     setShowAddStaff]     = useState(false);
   const [showStaffInfo,    setShowStaffInfo]    = useState(null);
   const [newStaffEmail,    setNewStaffEmail]    = useState("");
@@ -412,7 +416,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
         return;
       }
     }
-    const tempId=Date.now()+Math.random();
+    const tempId=uid();
     tlDragRef.current={type:'new',anchor:snapped,tempId};
     setTlPreview({isNew:true,id:tempId,startTime:minsToTime(snapped),endTime:minsToTime(Math.min(snapped+60,TL_END))});
     setTlTooltip({x,label:minsToTime(snapped),type:'new'});
@@ -645,14 +649,13 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
     return ns;
   };
 
-  const fillFromPrevWeek = () => {
+  const copyFromPrevWeek = () => {
     let filled=0; const ns={...schedule};
     const prevWiso=new Date(weekStart); prevWiso.setDate(prevWiso.getDate()-7);
     staff.forEach(s=>{ for(let d=0;d<7;d++){
       const from=`${prevWiso.toISOString()}|${s.id}|${d}`, to=cellKey(s.id,d);
       if(schedule[from]&&!schedule[to]){
-        // Give fresh IDs to reliefs to avoid collisions
-        const newBlocks=(schedule[from].blocks||[]).map(b=>({...b,id:Date.now()+Math.random(),reliefs:(b.reliefs||[]).map(r=>({...r,id:Date.now()+Math.random()}))}));
+        const newBlocks=(schedule[from].blocks||[]).map(b=>({...b,id:uid(),reliefs:(b.reliefs||[]).map(r=>({...r,id:uid()}))}));
         ns[to]={blocks:newBlocks};
         propagateReliefs(ns,newBlocks,s.id,d,wiso);
         filled++;
@@ -661,19 +664,21 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
     setSchedule(ns); showToast(filled>0?`✅ Filled ${filled} shift${filled>1?"s":""} from last week`:"⚠️ No data found in previous week");
   };
 
-  const copyWeekToNext = () => {
-    const nw=new Date(weekStart); nw.setDate(nw.getDate()+7);
-    const nwiso=nw.toISOString();
+  const copyDayFromPrev = (fromDayIdx, toDayIdx) => {
+    const prevWiso=new Date(weekStart); prevWiso.setDate(prevWiso.getDate()-7);
     const ns={...schedule};
-    staff.forEach(s=>{ for(let d=0;d<7;d++){
-      const from=cellKey(s.id,d);
+    let copied=0;
+    staff.forEach(s=>{
+      const from=`${prevWiso.toISOString()}|${s.id}|${fromDayIdx}`;
       if(schedule[from]){
-        const newBlocks=(schedule[from].blocks||[]).map(b=>({...b,id:Date.now()+Math.random(),reliefs:(b.reliefs||[]).map(r=>({...r,id:Date.now()+Math.random()}))}));
-        ns[`${nwiso}|${s.id}|${d}`]={blocks:newBlocks};
-        propagateReliefs(ns,newBlocks,s.id,d,nwiso);
+        const newBlocks=(schedule[from].blocks||[]).map(b=>({...b,id:uid(),reliefs:(b.reliefs||[]).map(r=>({...r,id:uid()}))}));
+        ns[cellKey(s.id,toDayIdx)]={blocks:newBlocks};
+        propagateReliefs(ns,newBlocks,s.id,toDayIdx,wiso);
+        copied++;
       }
-    }});
-    setSchedule(ns); setWeekStart(nw); showToast("✅ Week copied — jumped to next week");
+    });
+    setSchedule(ns);
+    showToast(copied>0?`✅ Copied ${DAYS[fromDayIdx]} → ${DAYS[toDayIdx]}`:`⚠️ No data for ${DAYS[fromDayIdx]} in previous week`);
   };
 
   const clearWeek = () => {
@@ -694,7 +699,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
   const pasteDay = (sId,dayIdx,e) => {
     if(e&&e.stopPropagation)e.stopPropagation(); if(!clipboard)return;
     const ns={...schedule};
-    const newBlocks=clipboard.blocks.map(b=>({...b,id:Date.now()+Math.random(),reliefs:(b.reliefs||[]).map(r=>({...r,id:Date.now()+Math.random()}))}));
+    const newBlocks=clipboard.blocks.map(b=>({...b,id:uid(),reliefs:(b.reliefs||[]).map(r=>({...r,id:uid()}))}));
     ns[cellKey(sId,dayIdx)]={blocks:newBlocks};
     propagateReliefs(ns,newBlocks,sId,dayIdx,wiso);
     setSchedule(ns); setClipboard(null); showToast("✅ Shift pasted");
@@ -705,7 +710,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
     const ex=getCellData(sId,dayIdx);
     const blocks=ex?.blocks?.length?ex.blocks.map(b=>{
       let reliefs=b.reliefs||[];
-      if(!reliefs.length&&b.relief?.staffId) reliefs=[{id:Date.now()+Math.random(),...b.relief}];
+      if(!reliefs.length&&b.relief?.staffId) reliefs=[{id:uid(),...b.relief}];
       return {...b,reliefs};
     }):[newBlock()];
     setEditBlocks(blocks);
@@ -765,7 +770,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
     const ns={...schedule};
     const clearingBlocks=getCellData(editCell.sId,editCell.dayIdx)?.blocks||[];
 
-    // If any of these blocks are relief assignments, remove them from the source staff's reliefs
+    // If any of these blocks are relief assignments, remove them from the source staff's reliefs[]
     clearingBlocks.forEach(b=>{
       if(!b.reliefFor||!b.reliefBlockId)return;
       Object.keys(ns).forEach(k=>{
@@ -775,6 +780,17 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
           return {...srcBlock,reliefs:srcBlock.reliefs.filter(r=>r.id!==b.reliefBlockId)};
         })};
       });
+    });
+
+    // Also clean any other staff whose blocks have reliefFor pointing to the staff being cleared
+    // (they were covering this person's lunch — now that their cell is gone, unlink them)
+    const clearedStaffId=String(editCell.sId);
+    Object.keys(ns).forEach(k=>{
+      if(!ns[k]?.blocks)return;
+      ns[k]={...ns[k],blocks:ns[k].blocks.map(b=>{
+        if(String(b.reliefFor)!==clearedStaffId)return b;
+        return {...b,reliefFor:null,reliefNote:"",reliefBlockId:null};
+      })};
     });
 
     delete ns[cellKey(editCell.sId,editCell.dayIdx)];
@@ -796,8 +812,12 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
     const ns={...schedule};
     Object.keys(ns).forEach(k=>{
       if(!ns[k]?.blocks)return;
+      // Remove from reliefs[] arrays where this staff was a coverer
       const cleaned=ns[k].blocks.map(b=>({...b,reliefs:(b.reliefs||[]).filter(r=>String(r.staffId)!==String(id))}));
-      ns[k]={...ns[k],blocks:cleaned};
+      // Also unlink reliefFor if it pointed to the removed staff
+      ns[k]={...ns[k],blocks:cleaned.map(b=>
+        String(b.reliefFor)===String(id)?{...b,reliefFor:null,reliefNote:"",reliefBlockId:null}:b
+      )};
     });
     // Remove this staff's own schedule keys — use exact format to avoid ID substring matches
     Object.keys(ns).forEach(k=>{ const parts=k.split("|"); if(parts[1]===String(id))delete ns[k]; });
@@ -860,7 +880,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
     const ns={...schedule};
     staff.forEach(s=>{ for(let d=0;d<7;d++){
       if(tmpl.data[`${s.id}|${d}`]){
-        const newBlocks=(tmpl.data[`${s.id}|${d}`].blocks||[]).map(b=>({...b,id:Date.now()+Math.random(),reliefs:(b.reliefs||[]).map(r=>({...r,id:Date.now()+Math.random()}))}));
+        const newBlocks=(tmpl.data[`${s.id}|${d}`].blocks||[]).map(b=>({...b,id:uid(),reliefs:(b.reliefs||[]).map(r=>({...r,id:uid()}))}));
         ns[cellKey(s.id,d)]={blocks:newBlocks};
         propagateReliefs(ns,newBlocks,s.id,d,wiso);
       }
@@ -1018,8 +1038,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
       {/* ── QUICK ACTIONS ── */}
       <div style={{background:"#E8F3E8",padding:"8px 28px",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",borderBottom:"1px solid #D0E8D0"}}>
         <span style={{fontSize:11,fontWeight:800,color:"#4B7A5A",letterSpacing:"0.5px",marginRight:4}}>QUICK ACTIONS:</span>
-        <button onClick={()=>setConfirmDelete({type:"fillFromPrev"})} style={{background:"white",border:"1.5px solid #40916C",color:"#1B4332",borderRadius:9,padding:"5px 13px",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>⬅️ Fill from Prev Week</button>
-        <button onClick={()=>setConfirmDelete({type:"copyToNext"})}  style={{background:"white",border:"1.5px solid #40916C",color:"#1B4332",borderRadius:9,padding:"5px 13px",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>➡️ Copy Week to Next</button>
+        <button onClick={()=>setCopyPrevModal({step:"pick"})} style={{background:"white",border:"1.5px solid #40916C",color:"#1B4332",borderRadius:9,padding:"5px 13px",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>⬅️ Copy from Prev Day/Week</button>
         <button onClick={()=>setShowClearModal(true)}  style={{background:"white",border:"1.5px solid #DC2626",color:"#DC2626",borderRadius:9,padding:"5px 13px",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>🗑 Clear Day / Week</button>
         <button onClick={()=>setShowTemplates(true)} style={{background:"white",border:"1.5px solid #9575CD",color:"#512DA8",borderRadius:9,padding:"5px 13px",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>📁 Templates{templates.length>0?` (${templates.length})`:""}</button>
         <div ref={calRef} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6,background:"white",borderRadius:9,padding:"4px 10px",position:"relative",border:"1.5px solid #40916C"}}>
@@ -1127,22 +1146,30 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
         orderedRooms.forEach(room=>{
           const raw=[];
 
-          // Build a lookup: staffId → set of reliefBlockIds they are covering (from lunch blocks)
-          // This handles data where reliefFor wasn't stamped on the coverer's block
-          const reliefCovererMap={}; // covererStaffId → { reliefFor: ownerStaffId }
+          // Build a lookup: for THIS room, who is covering whose lunch?
+          const reliefCovererMap={};
           staff.forEach(owner=>{
             (getCellData(owner.id,clampedInsightDayIdx)?.blocks||[]).forEach(lb=>{
               if(!IS_LUNCH_ROOM(lb.room||'')) return;
               (lb.reliefs||[]).forEach(r=>{
-                if(r.staffId) reliefCovererMap[String(r.staffId)]={reliefFor:owner.id};
+                if(!r.staffId) return;
+                const covererBlocks=getCellData(r.staffId,clampedInsightDayIdx)?.blocks||[];
+                const hasBlockInThisRoom=covererBlocks.some(cb=>cb.room===room.name&&cb.startTime&&cb.endTime);
+                if(hasBlockInThisRoom) reliefCovererMap[String(r.staffId)]={reliefFor:owner.id};
               });
             });
           });
 
-          staff.forEach((s,si)=>{
+          // Sort staff by total minutes in this room today (descending) so longest shifts are at top
+          const staffWithDuration=[...staff].map((s,si)=>{
+            const blocks=(getCellData(s.id,clampedInsightDayIdx)?.blocks||[]).filter(b=>b.room===room.name&&b.startTime&&b.endTime);
+            const totalMins=blocks.reduce((sum,b)=>sum+Math.max(0,timeToMins(b.endTime)-timeToMins(b.startTime)),0);
+            return {s,si,totalMins};
+          }).filter(x=>x.totalMins>0).sort((a,b)=>b.totalMins-a.totalMins);
+
+          staffWithDuration.forEach(({s,si})=>{
             (getCellData(s.id,clampedInsightDayIdx)?.blocks||[]).forEach(b=>{
               if(b.room===room.name&&b.startTime&&b.endTime){
-                // Determine reliefFor — prefer explicit field, fall back to lunch-block lookup
                 const explicitRelief=b.reliefFor||null;
                 const inferredRelief=!explicitRelief?reliefCovererMap[String(s.id)]?.reliefFor:null;
                 const resolvedReliefFor=explicitRelief||inferredRelief||null;
@@ -1189,7 +1216,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
         const maxLanes = (blocks) => blocks.reduce((m,b)=>Math.max(m,(b.lane||0)+1),1);
 
         const moveRoom = (idx, dir) => {
-          const base = insightRoomOrder || rooms.filter(r=>r.name!=="Vacation");
+          const base = insightRoomOrder || rooms.filter(r=>r.name!=="Vacation"&&r.name!=="Sick");
           const arr=[...base];
           const newIdx=idx+dir;
           if(newIdx<0||newIdx>=arr.length) return;
@@ -1960,17 +1987,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                     {/* ── Covering for someone's lunch (enter from coverer's side) ── */}
                     {block.room&&!HOURS_EXCLUDED_ROOMS.has(block.room)&&block.startTime&&block.endTime&&(()=>{
                       const hasCovering=!!block.reliefFor;
-                      // Who is being covered — find staff that have a lunch block overlapping this block's time
                       const bStart=timeToMins(block.startTime),bEnd=timeToMins(block.endTime);
-                      const potentialTargets=staff.filter(s=>{
-                        if(String(s.id)===String(editCell?.sId))return false;
-                        // They have a lunch/break block in this window, OR no block at all (lunch may not exist yet)
-                        const theirBlocks=getCellData(s.id,editCell?.dayIdx)?.blocks||[];
-                        const hasLunch=theirBlocks.some(tb=>IS_LUNCH_ROOM(tb.room||'')&&tb.startTime&&tb.endTime&&
-                          timeToMins(tb.startTime)<bEnd&&timeToMins(tb.endTime)>bStart);
-                        // Include everyone — if they have a lunch block in range OR are unlisted (lunch not yet entered)
-                        return true;
-                      });
                       return(
                         <div style={{marginTop:8,background:hasCovering?"#F0FDF4":"#F8FAFC",border:`1.5px solid ${hasCovering?"#6EE7B7":"#E2E8F0"}`,borderRadius:9,padding:"9px 12px"}}>
                           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:hasCovering?8:0}}>
@@ -2225,45 +2242,35 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
       {confirmDelete&&(
         <div style={{position:"fixed",inset:0,background:"rgba(15,30,20,0.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:2000,padding:16}} onClick={e=>e.target===e.currentTarget&&setConfirmDelete(null)}>
           <div style={{background:"white",borderRadius:22,padding:32,width:400,maxWidth:"100%",boxShadow:"0 24px 64px rgba(0,0,0,0.3)",textAlign:"center"}}>
-            <div style={{width:56,height:56,borderRadius:"50%",background:confirmDelete.type==="clearWeek"||confirmDelete.type==="clearDay"?"#FEE2E2":confirmDelete.type==="fillFromPrev"||confirmDelete.type==="copyToNext"?"#FEF3C7":"#FEE2E2",display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,margin:"0 auto 16px"}}>
-              {confirmDelete.type==="fillFromPrev"?"⬅️":confirmDelete.type==="copyToNext"?"➡️":confirmDelete.type==="clearWeek"||confirmDelete.type==="clearDay"?"🗑️":"🗑️"}
+            <div style={{width:56,height:56,borderRadius:"50%",background:"#FEE2E2",display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,margin:"0 auto 16px"}}>
+              {"🗑️"}
             </div>
             <div style={{fontWeight:900,fontSize:20,color:"#1E293B",marginBottom:8}}>
-              {confirmDelete.type==="fillFromPrev"?"Fill from Previous Week?"
-              :confirmDelete.type==="copyToNext"?"Copy Week to Next?"
-              :confirmDelete.type==="clearWeek"?"Clear Entire Week?"
+              {confirmDelete.type==="clearWeek"?"Clear Entire Week?"
               :confirmDelete.type==="clearDay"?`Clear ${confirmDelete.label}?`
               :confirmDelete.type==="staff"?"Remove Staff Member?"
               :confirmDelete.type==="room"?"Delete Room?"
               :"Delete Location?"}
             </div>
             <div style={{fontSize:14,color:"#64748B",marginBottom:6}}>
-              {confirmDelete.type==="fillFromPrev"&&<>Copy all shifts from the previous week into this week. Only empty days will be filled — existing shifts won't be overwritten.</>}
-              {confirmDelete.type==="copyToNext"&&<>Copy this entire week's schedule to next week, then jump to it. Existing shifts on next week will be overwritten.</>}
               {confirmDelete.type==="clearWeek"&&<>Clear <strong style={{color:"#DC2626"}}>all shifts for every staff member</strong> on the current week ({weekLabel}). This cannot be undone.</>}
               {confirmDelete.type==="clearDay"&&<>Clear <strong style={{color:"#DC2626"}}>all shifts for every staff member</strong> on <strong style={{color:"#1E293B"}}>{confirmDelete.label}</strong>. This cannot be undone.</>}
               {confirmDelete.type==="staff"&&<>Remove <strong style={{color:"#1E293B"}}>{confirmDelete.name}</strong>? All their scheduled shifts at this location will be deleted.</>}
               {confirmDelete.type==="room"&&<>Delete room <strong style={{color:"#1E293B"}}>{confirmDelete.name}</strong>? It will be cleared from all shifts where it was assigned.</>}
               {confirmDelete.type==="location"&&<>Delete <strong style={{color:"#1E293B"}}>{confirmDelete.name}</strong>? All staff, rooms, and schedules for this location will be permanently removed.</>}
             </div>
-            <div style={{fontSize:12,color:"#94A3B8",marginBottom:24}}>
-              {confirmDelete.type==="fillFromPrev"||confirmDelete.type==="copyToNext"?"Shift data will be duplicated with fresh IDs.":"This action cannot be undone."}
-            </div>
+            <div style={{fontSize:12,color:"#94A3B8",marginBottom:24}}>This action cannot be undone.</div>
             <div style={{display:"flex",gap:10}}>
               <button onClick={()=>setConfirmDelete(null)} style={{flex:1,padding:12,borderRadius:12,border:"2px solid #E2E8F0",background:"white",color:"#475569",fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
               <button onClick={()=>{
-                if(confirmDelete.type==="fillFromPrev")fillFromPrevWeek();
-                else if(confirmDelete.type==="copyToNext")copyWeekToNext();
-                else if(confirmDelete.type==="clearWeek")clearWeek();
+                if(confirmDelete.type==="clearWeek")clearWeek();
                 else if(confirmDelete.type==="clearDay")clearDay(confirmDelete.dayIdx);
                 else if(confirmDelete.type==="staff")removeStaff(confirmDelete.id);
                 else if(confirmDelete.type==="room")removeRoom(confirmDelete.id);
                 else removeLoc(confirmDelete.id);
                 setConfirmDelete(null);
-              }} style={{flex:1,padding:12,borderRadius:12,border:"none",background:confirmDelete.type==="fillFromPrev"||confirmDelete.type==="copyToNext"?"linear-gradient(135deg,#1B4332,#40916C)":"linear-gradient(135deg,#DC2626,#EF4444)",color:"white",fontWeight:800,fontSize:14,cursor:"pointer",fontFamily:"inherit",boxShadow:confirmDelete.type==="fillFromPrev"||confirmDelete.type==="copyToNext"?"0 4px 14px rgba(27,67,50,0.3)":"0 4px 14px rgba(220,38,38,0.3)"}}>
-                {confirmDelete.type==="fillFromPrev"?"Yes, Fill Week"
-                :confirmDelete.type==="copyToNext"?"Yes, Copy to Next"
-                :confirmDelete.type==="clearWeek"?"Yes, Clear Entire Week"
+              }} style={{flex:1,padding:12,borderRadius:12,border:"none",background:"linear-gradient(135deg,#DC2626,#EF4444)",color:"white",fontWeight:800,fontSize:14,cursor:"pointer",fontFamily:"inherit",boxShadow:"0 4px 14px rgba(220,38,38,0.3)"}}>
+                {confirmDelete.type==="clearWeek"?"Yes, Clear Entire Week"
                 :confirmDelete.type==="clearDay"?`Yes, Clear ${confirmDelete.label.split(",")[0]}`
                 :confirmDelete.type==="staff"?"Yes, Remove"
                 :confirmDelete.type==="room"?"Yes, Delete"
@@ -2274,6 +2281,157 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
         </div>
       )}
 
+
+      {/* ── COPY FROM PREV DAY / WEEK MODAL ── */}
+      {copyPrevModal&&(()=>{
+        const prevWeekStart=new Date(weekStart); prevWeekStart.setDate(prevWeekStart.getDate()-7);
+        const prevWeekDates=getWeekDates(prevWeekStart);
+        const prevWiso=prevWeekStart.toISOString();
+        // Which days in the prev week have ANY data
+        const prevDayHasData=DAYS.map((_,d)=>staff.some(s=>schedule[`${prevWiso}|${s.id}|${d}`]?.blocks?.length>0));
+        const m=copyPrevModal;
+        const close=()=>setCopyPrevModal(null);
+        return(
+          <div style={{position:"fixed",inset:0,background:"rgba(15,30,20,0.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:2000,padding:16}} onClick={e=>e.target===e.currentTarget&&close()}>
+            <div style={{background:"white",borderRadius:22,padding:28,width:460,maxWidth:"100%",boxShadow:"0 24px 64px rgba(0,0,0,0.3)"}}>
+
+              {/* Header */}
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
+                <div>
+                  <div style={{fontWeight:900,fontSize:19,color:"#1E293B"}}>⬅️ Copy from Previous Week</div>
+                  <div style={{fontSize:12,color:"#64748B",marginTop:2}}>Previous week: <strong>{`${formatDate(prevWeekDates[0])} – ${formatDate(prevWeekDates[6])}`}</strong></div>
+                </div>
+                <button onClick={close} style={{background:"#F1F5F9",border:"none",borderRadius:8,width:30,height:30,cursor:"pointer",fontSize:18,color:"#64748B",display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
+              </div>
+
+              {/* Step: pick */}
+              {m.step==="pick"&&(
+                <div>
+                  <div style={{fontSize:13,color:"#475569",marginBottom:16,fontWeight:600}}>What would you like to copy?</div>
+                  <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                    <button onClick={()=>setCopyPrevModal({step:"confirm-week"})}
+                      style={{padding:"16px 18px",borderRadius:14,border:"2px solid #40916C",background:"#F0FDF4",cursor:"pointer",textAlign:"left",fontFamily:"inherit"}}>
+                      <div style={{fontWeight:800,fontSize:14,color:"#1B4332"}}>📅 Copy entire week</div>
+                      <div style={{fontSize:12,color:"#52B788",marginTop:3}}>Copy all shifts from prev week — only fills empty days, won't overwrite existing shifts</div>
+                    </button>
+                    <button onClick={()=>setCopyPrevModal({step:"pickDay",fromDay:null,toDay:null})}
+                      style={{padding:"16px 18px",borderRadius:14,border:"2px solid #3B82F6",background:"#EFF6FF",cursor:"pointer",textAlign:"left",fontFamily:"inherit"}}>
+                      <div style={{fontWeight:800,fontSize:14,color:"#1E40AF"}}>📆 Copy a single day</div>
+                      <div style={{fontSize:12,color:"#60A5FA",marginTop:3}}>Pick one day from last week and paste it onto any day this week</div>
+                    </button>
+                  </div>
+                  <button onClick={close} style={{marginTop:16,width:"100%",padding:11,borderRadius:11,border:"2px solid #E2E8F0",background:"white",color:"#475569",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
+                </div>
+              )}
+
+              {/* Step: confirm-week */}
+              {m.step==="confirm-week"&&(
+                <div>
+                  <div style={{background:"#F0FDF4",border:"1.5px solid #86EFAC",borderRadius:12,padding:"14px 16px",marginBottom:18}}>
+                    <div style={{fontWeight:800,fontSize:14,color:"#1B4332",marginBottom:4}}>📅 Copy entire previous week</div>
+                    <div style={{fontSize:13,color:"#374151"}}>All shifts from <strong>{`${formatDate(prevWeekDates[0])} – ${formatDate(prevWeekDates[6])}`}</strong> will be copied into the current week. Days that already have shifts will be skipped.</div>
+                  </div>
+                  <div style={{fontSize:12,color:"#94A3B8",marginBottom:20,textAlign:"center"}}>Shifts will be duplicated with fresh IDs. This only fills empty days.</div>
+                  <div style={{display:"flex",gap:10}}>
+                    <button onClick={()=>setCopyPrevModal({step:"pick"})} style={{flex:1,padding:12,borderRadius:11,border:"2px solid #E2E8F0",background:"white",color:"#475569",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>← Back</button>
+                    <button onClick={()=>{ copyFromPrevWeek(); close(); }}
+                      style={{flex:2,padding:12,borderRadius:11,border:"none",background:"linear-gradient(135deg,#1B4332,#40916C)",color:"white",fontWeight:800,fontSize:14,cursor:"pointer",fontFamily:"inherit",boxShadow:"0 4px 14px rgba(27,67,50,0.3)"}}>
+                      ✓ Yes, Copy Entire Week
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Step: pickDay — select source and target day */}
+              {m.step==="pickDay"&&(
+                <div>
+                  <div style={{marginBottom:14}}>
+                    <div style={{fontSize:11,fontWeight:800,color:"#6B7280",letterSpacing:"0.5px",marginBottom:8}}>COPY FROM (previous week)</div>
+                    <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:4}}>
+                      {DAYS.map((day,i)=>{
+                        const hasData=prevDayHasData[i];
+                        const sel=m.fromDay===i;
+                        return(
+                          <button key={i} onClick={()=>hasData&&setCopyPrevModal(p=>({...p,fromDay:i}))}
+                            style={{padding:"8px 4px",borderRadius:9,border:`2px solid ${sel?"#3B82F6":hasData?"#93C5FD":"#E2E8F0"}`,
+                              background:sel?"#2563EB":hasData?"#EFF6FF":"#F8FAFC",
+                              color:sel?"white":hasData?"#1E40AF":"#CBD5E1",
+                              fontWeight:sel?800:hasData?700:500,fontSize:11,cursor:hasData?"pointer":"default",
+                              fontFamily:"inherit",textAlign:"center"}}>
+                            <div>{DAY_SHORT[i]}</div>
+                            <div style={{fontSize:9,marginTop:2,opacity:0.8}}>{formatDate(prevWeekDates[i])}</div>
+                            {!hasData&&<div style={{fontSize:8,marginTop:2,color:"#CBD5E1"}}>empty</div>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div style={{marginBottom:18}}>
+                    <div style={{fontSize:11,fontWeight:800,color:"#6B7280",letterSpacing:"0.5px",marginBottom:8}}>PASTE TO (this week)</div>
+                    <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:4}}>
+                      {DAYS.map((day,i)=>{
+                        const hasData=staff.some(s=>getCellData(s.id,i)?.blocks?.length>0);
+                        const sel=m.toDay===i;
+                        const isToday=weekDates[i]?.toDateString()===new Date().toDateString();
+                        return(
+                          <button key={i} onClick={()=>setCopyPrevModal(p=>({...p,toDay:i}))}
+                            style={{padding:"8px 4px",borderRadius:9,
+                              border:`2px solid ${sel?"#40916C":isToday?"#1E3A8A":"#E2E8F0"}`,
+                              background:sel?"#1B4332":isToday?"#EFF6FF":"#F8FAFC",
+                              color:sel?"white":isToday?"#1E3A8A":"#374151",
+                              fontWeight:sel?800:600,fontSize:11,cursor:"pointer",fontFamily:"inherit",textAlign:"center"}}>
+                            <div>{DAY_SHORT[i]}</div>
+                            <div style={{fontSize:9,marginTop:2,opacity:0.8}}>{formatDate(weekDates[i])}</div>
+                            {hasData&&!sel&&<div style={{fontSize:8,marginTop:2,color:"#F59E0B",fontWeight:700}}>has shifts</div>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div style={{display:"flex",gap:10}}>
+                    <button onClick={()=>setCopyPrevModal({step:"pick"})} style={{flex:1,padding:12,borderRadius:11,border:"2px solid #E2E8F0",background:"white",color:"#475569",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>← Back</button>
+                    <button onClick={()=>{ if(m.fromDay==null||m.toDay==null)return; setCopyPrevModal({step:"confirm-day",fromDay:m.fromDay,toDay:m.toDay}); }}
+                      disabled={m.fromDay==null||m.toDay==null}
+                      style={{flex:2,padding:12,borderRadius:11,border:"none",
+                        background:m.fromDay!=null&&m.toDay!=null?"linear-gradient(135deg,#1E40AF,#3B82F6)":"#E2E8F0",
+                        color:m.fromDay!=null&&m.toDay!=null?"white":"#94A3B8",
+                        fontWeight:800,fontSize:13,cursor:m.fromDay!=null&&m.toDay!=null?"pointer":"default",fontFamily:"inherit"}}>
+                      Next →
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Step: confirm-day */}
+              {m.step==="confirm-day"&&(
+                <div>
+                  <div style={{background:"#EFF6FF",border:"1.5px solid #93C5FD",borderRadius:12,padding:"14px 16px",marginBottom:6}}>
+                    <div style={{fontWeight:800,fontSize:14,color:"#1E40AF",marginBottom:6}}>📆 Confirm single day copy</div>
+                    <div style={{fontSize:13,color:"#374151",lineHeight:1.6}}>
+                      Copy <strong>{DAYS[m.fromDay]}, {formatDate(prevWeekDates[m.fromDay])}</strong> (prev week)<br/>
+                      → Paste onto <strong>{DAYS[m.toDay]}, {formatDate(weekDates[m.toDay])}</strong> (this week)
+                    </div>
+                  </div>
+                  {staff.some(s=>getCellData(s.id,m.toDay)?.blocks?.length>0)&&(
+                    <div style={{background:"#FFFBEB",border:"1.5px solid #FCD34D",borderRadius:9,padding:"8px 12px",marginTop:8,marginBottom:4,fontSize:12,color:"#92400E",fontWeight:700}}>
+                      ⚠️ {DAYS[m.toDay]} already has shifts — they will be overwritten.
+                    </div>
+                  )}
+                  <div style={{fontSize:12,color:"#94A3B8",marginBottom:20,marginTop:8,textAlign:"center"}}>Shifts will be duplicated with fresh IDs.</div>
+                  <div style={{display:"flex",gap:10}}>
+                    <button onClick={()=>setCopyPrevModal({step:"pickDay",fromDay:m.fromDay,toDay:m.toDay})} style={{flex:1,padding:12,borderRadius:11,border:"2px solid #E2E8F0",background:"white",color:"#475569",fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>← Back</button>
+                    <button onClick={()=>{ copyDayFromPrev(m.fromDay,m.toDay); close(); }}
+                      style={{flex:2,padding:12,borderRadius:11,border:"none",background:"linear-gradient(135deg,#1E40AF,#3B82F6)",color:"white",fontWeight:800,fontSize:14,cursor:"pointer",fontFamily:"inherit",boxShadow:"0 4px 14px rgba(37,99,235,0.3)"}}>
+                      ✓ Yes, Copy {DAY_SHORT[m.fromDay]} → {DAY_SHORT[m.toDay]}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── STAFF INFO / CALENDAR MODAL ── */}
       {showStaffInfo && (()=>{
@@ -2426,7 +2584,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
             )};
             // Add the block to target staff's schedule
             const tCell=sched[tKey]||{blocks:[]};
-            const newB={...block,id:Date.now()+Math.random(),reliefNote:`Covering for ${sickS.name}`,reliefs:[]};
+            const newB={...block,id:uid(),reliefNote:`Covering for ${sickS.name}`,reliefs:[]};
             sched[tKey]={...tCell,blocks:sortBlocks([...tCell.blocks,newB])};
             return{...loc,schedule:sched};
           }));
