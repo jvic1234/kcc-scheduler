@@ -1077,16 +1077,26 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
         // Hidden rooms set
         const hiddenRooms = insightRoomFilter || new Set();
 
-        // Greedy lane assignment — stacks blocks vertically only when they genuinely overlap
+        // Lane assignment:
+        // - Each unique staff member gets their own dedicated lane (order of first appearance)
+        // - Relief blocks (reliefFor set) inherit the lane of whoever they're covering,
+        //   so they visually fill the gap in that person's row rather than stacking separately
         const buildLanes = (blocks) => {
           const sorted=[...blocks].sort((a,b)=>timeToMins(a.startTime)-timeToMins(b.startTime));
-          const laneEnds=[];
+          // First pass: assign a lane index to each unique non-relief staff member
+          const staffLane={};
+          sorted.forEach(rb=>{
+            if(!rb.isRelief&&staffLane[String(rb.staffId)]===undefined){
+              staffLane[String(rb.staffId)]=Object.keys(staffLane).length;
+            }
+          });
+          // Second pass: relief blocks take the lane of who they cover, regular blocks take their own lane
           return sorted.map(rb=>{
-            const rs=timeToMins(rb.startTime);
-            let lane=laneEnds.findIndex(e=>e<=rs);
-            if(lane===-1){lane=laneEnds.length;laneEnds.push(0);}
-            laneEnds[lane]=timeToMins(rb.endTime);
-            return{...rb,lane};
+            if(rb.isRelief&&rb.reliefFor!=null){
+              const coveredLane=staffLane[String(rb.reliefFor)];
+              return{...rb,lane:coveredLane!==undefined?coveredLane:Object.keys(staffLane).length};
+            }
+            return{...rb,lane:staffLane[String(rb.staffId)]??0};
           });
         };
 
@@ -1097,7 +1107,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
             (getCellData(s.id,clampedInsightDayIdx)?.blocks||[]).forEach(b=>{
               if(b.room===room.name&&b.startTime&&b.endTime)
                 raw.push({staffId:s.id,name:s.name,si,startTime:b.startTime,endTime:b.endTime,
-                  blockId:b.id,isRelief:!!b.reliefFor,reliefNote:b.reliefNote||''});
+                  blockId:b.id,isRelief:!!b.reliefFor,reliefFor:b.reliefFor||null,reliefNote:b.reliefNote||''});
             });
           });
           roomStaffMap[room.name]=buildLanes(raw);
