@@ -1838,8 +1838,8 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
           <div style={{background:"white",borderRadius:22,padding:28,width:520,maxWidth:"100%",boxShadow:"0 24px 64px rgba(0,0,0,0.28)",maxHeight:"92vh",overflowY:"auto"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20}}>
               <div>
-                <div style={{fontWeight:900,fontSize:20,color:"#1E293B"}}>Edit Shift</div>
-                <div style={{fontSize:12,color:"#64748B",marginTop:3,fontWeight:600}}>{staff.find(s=>s.id===editCell.sId)?.name} &nbsp;·&nbsp; {formatDateLong(weekDates[editCell.dayIdx])}</div>
+                <div style={{fontWeight:900,fontSize:13,color:\"#94A3B8\",letterSpacing:"0.3px",textTransform:"uppercase"}}>Edit Shift</div>
+                <div style={{fontSize:20,color:"#1E293B",marginTop:2,fontWeight:800}}>{staff.find(s=>s.id===editCell.sId)?.name} &nbsp;·&nbsp; {formatDateLong(weekDates[editCell.dayIdx])}</div>
               </div>
               <button onClick={()=>setEditCell(null)} style={{background:"#F1F5F9",border:"none",borderRadius:8,width:30,height:30,cursor:"pointer",fontSize:18,color:"#64748B",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>×</button>
             </div>
@@ -1936,11 +1936,14 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                         const flds={room:newRoom};
                         if(newRoom&&block.startTime){
                           if(HOURS_EXCLUDED_ROOMS.has(newRoom)){
-                            // For lunch/break: snap start to the end of the latest preceding work block
+                            // Snap start to the latest work block that ends at or before this block's
+                            // current start — so a block inserted in a 9-10am gap stays at 9am,
+                            // not pulled to 3pm by a later block's end time.
+                            const blockStart=timeToMins(block.startTime);
                             const prevWorkEnd=editBlocks
-                              .filter(b=>b.id!==block.id&&b.startTime&&b.endTime&&!HOURS_EXCLUDED_ROOMS.has(b.room)&&b.room)
+                              .filter(b=>b.id!==block.id&&b.startTime&&b.endTime&&!HOURS_EXCLUDED_ROOMS.has(b.room)&&b.room&&timeToMins(b.endTime)<=blockStart)
                               .reduce((max,b)=>Math.max(max,timeToMins(b.endTime)),0);
-                            const lunchStart=prevWorkEnd>0?prevWorkEnd:timeToMins(block.startTime);
+                            const lunchStart=prevWorkEnd>0?prevWorkEnd:blockStart;
                             const lunchStartTime=TIMES.find(t=>timeToMins(t)===lunchStart)||block.startTime;
                             const autoEnd=TIMES.find(t=>timeToMins(t)===lunchStart+60);
                             flds.startTime=lunchStartTime;
