@@ -1175,7 +1175,8 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
           </span>
         ); })}
         <div style={{marginLeft:"auto",display:"flex",gap:8}}>
-          <button onClick={()=>setShowInsights(true)} style={{background:"white",color:"#6D28D9",border:"2px solid #7C3AED",borderRadius:10,padding:"7px 14px",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>📊 Insights</button>
+          <button onClick={()=>setShowInsights(false)} style={{background:showInsights?"white":"linear-gradient(135deg,#1E3A8A,#16307acc)",color:showInsights?"#1E3A8A":"white",border:"2px solid #1E3A8A",borderRadius:10,padding:"7px 14px",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>📅 Schedule</button>
+          <button onClick={()=>setShowInsights(true)} style={{background:showInsights?"linear-gradient(135deg,#1E3A8A,#16307acc)":"white",color:showInsights?"white":"#1E3A8A",border:"2px solid #1E3A8A",borderRadius:10,padding:"7px 14px",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>📊 Overview</button>
           <button onClick={()=>setShowManageRooms(true)} style={{background:"white",color:"#2D6A4F",border:"2px solid #40916C",borderRadius:10,padding:"7px 14px",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}>🏠 Edit Spaces</button>
           <button onClick={()=>setShowAddStaff(true)} style={{background:`linear-gradient(135deg,${locColor},${locColor}cc)`,color:"white",border:"none",borderRadius:10,padding:"7px 16px",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"inherit",boxShadow:"0 2px 8px rgba(0,0,0,0.2)"}}>+ Add Staff</button>
         </div>
@@ -1306,23 +1307,31 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
 
         return(
           <div style={{padding:"20px 28px"}}>
-            {/* Header */}
-            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14,flexWrap:"wrap"}}>
-              <button onClick={()=>setShowInsights(false)} style={{background:"#F1F5F9",border:"none",borderRadius:9,padding:"7px 14px",fontSize:12,fontWeight:800,color:"#475569",cursor:"pointer",fontFamily:"inherit"}}>← Back to Schedule</button>
-              <div style={{fontWeight:900,fontSize:20,color:"#1E293B"}}>📊 Insights</div>
-              <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
-                {DAY_SHORT.map((d,i)=>{ const isToday=weekDates[i]?.toDateString()===new Date().toDateString(); return(
-                  <button key={i} onClick={()=>setInsightDayIdx(i)}
-                    style={{padding:"6px 12px",borderRadius:9,border:isToday&&clampedInsightDayIdx!==i?"2px solid #1E3A8A":"2px solid transparent",background:clampedInsightDayIdx===i?"#1E3A8A":"#F1F5F9",color:clampedInsightDayIdx===i?"white":isToday?"#1E3A8A":"#475569",fontWeight:clampedInsightDayIdx===i?800:600,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>
-                    {d}<div style={{fontSize:9,opacity:0.7,marginTop:1}}>{formatDate(weekDates[i])}</div>
-                  </button>
-                ); })}
+            {/* Navy header bar — matches schedule table header */}
+            <div style={{background:"white",borderRadius:18,boxShadow:"0 2px 20px rgba(0,0,0,0.07)",overflow:"hidden",marginBottom:0}}>
+              <div style={{background:"#1E3A8A",display:"flex",alignItems:"stretch"}}>
+                {/* Left column: SPACE / ROOM label */}
+                <div style={{width:190,flexShrink:0,padding:"13px 16px",borderRight:"1px solid rgba(255,255,255,0.1)",display:"flex",alignItems:"center"}}>
+                  <span style={{fontSize:12,fontWeight:800,color:"white",letterSpacing:"0.5px"}}>SPACE / ROOM</span>
+                </div>
+                {/* Day columns — clickable to switch day */}
+                <div style={{flex:1,display:"flex"}}>
+                  {weekDates.map((date,i)=>{ const isToday=date.toDateString()===new Date().toDateString(); const isActive=clampedInsightDayIdx===i; return(
+                    <button key={i} onClick={()=>setInsightDayIdx(i)}
+                      style={{flex:1,padding:"10px 4px",background:isActive?"rgba(255,255,255,0.18)":isToday?"rgba(255,255,255,0.07)":"transparent",
+                        border:"none",borderRight:i<6?"1px solid rgba(255,255,255,0.08)":"none",cursor:"pointer",fontFamily:"inherit",position:"relative",
+                        outline:isActive?"2px solid rgba(255,255,255,0.5)":"none",outlineOffset:"-2px"}}>
+                      {isToday&&!isActive&&<div style={{position:"absolute",top:5,right:5,background:"#95D5B2",color:"#1B4332",fontSize:8,fontWeight:900,padding:"1px 5px",borderRadius:6}}>TODAY</div>}
+                      <div style={{fontSize:13,fontWeight:isActive?900:700,color:"white"}}>{DAY_SHORT[i]}</div>
+                      <div style={{fontSize:10,color:isActive?"rgba(255,255,255,0.9)":"rgba(255,255,255,0.55)",marginTop:1,fontWeight:500}}>{formatDate(date)}</div>
+                      {isActive&&<div style={{position:"absolute",bottom:0,left:"10%",right:"10%",height:3,background:"#95D5B2",borderRadius:"3px 3px 0 0"}}/>}
+                    </button>
+                  ); })}
+                </div>
               </div>
-              <div style={{marginLeft:"auto",fontSize:11,color:"#94A3B8",fontWeight:600}}>Click a staff block to edit their shift</div>
-            </div>
 
-            <div style={{background:"white",borderRadius:18,boxShadow:"0 2px 20px rgba(0,0,0,0.07)",padding:"16px 20px",overflowX:"auto"}}>
-              {/* Hour header */}
+            <div style={{padding:"16px 20px",overflowX:"auto"}}>
+              {/* Hour ticks */}
               <div style={{display:"flex",alignItems:"center",marginBottom:10,paddingBottom:6,borderBottom:"1px solid #F1F5F9"}}>
                 <div style={{width:190,flexShrink:0}}/>
                 <div style={{flex:1,position:"relative",height:16}}>
@@ -1522,6 +1531,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                 </div>
               )}
             </div>
+            </div>{/* end white card */}
           </div>
         );
       })()}
