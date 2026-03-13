@@ -75,23 +75,8 @@ const INITIAL_LOCATIONS = [
     id: 1,
     name: "Main Location",
     colorIdx: 0,
-    staff: [
-      { id:1, name:"Sarah Johnson", email:"" },
-      { id:2, name:"Mike Chen", email:"" },
-      { id:3, name:"Emily Davis", email:"" },
-      { id:4, name:"Lisa Thompson", email:"" },
-    ],
-    rooms: [
-      { id:1, name:"Infant Room",    colorIdx:0 },
-      { id:2, name:"Toddler Room",   colorIdx:1 },
-      { id:3, name:"Preschool Room", colorIdx:2 },
-      { id:4, name:"Pre-K Room",     colorIdx:3 },
-      { id:5, name:"Floater",        colorIdx:4 },
-      { id:6, name:"Office",         colorIdx:5 },
-      { id:7, name:"Lunch / Break",  colorIdx:6 },
-      { id:8, name:"Kitchen",        colorIdx:7 },
-      { id:9, name:"Vacation",       colorIdx:8 },
-    ],
+    staff: [],
+    rooms: [],
     schedule:  {},
     templates: [],
   }
@@ -315,6 +300,11 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
   const rc = (name) => { const r=rooms.find(r=>r.name===name); return r?COLOR_PALETTE[r.colorIdx%COLOR_PALETTE.length]:{bg:"#F8FAFC",border:"#CBD5E1",text:"#475569",dot:"#94A3B8"}; };
 
   // ── Persistence ────────────────────────────────────────────────────────────
+  // dataLoadAttempted: true once we've either loaded real data OR confirmed there is none.
+  // The save effect must not fire until this is true, so a failed load never overwrites
+  // real Supabase data with the empty INITIAL_LOCATIONS.
+  const dataLoadAttempted = useRef(false);
+
   useEffect(()=>{
     (async()=>{
       try {
@@ -325,7 +315,13 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
           if(d.activeLocId) setActiveLocId(d.activeLocId);
           if(d.attendance) setAttendance(d.attendance);
         }
-      } catch(e){}
+      } catch(e){
+        // Key not found or network error — either way we've made a load attempt;
+        // existing INITIAL_LOCATIONS state is fine to keep but must not be saved
+        // over real data if this was just a transient error.
+        console.warn("KCC: storage load failed or key not found:", e?.message);
+      }
+      dataLoadAttempted.current = true;
       setLoaded(true);
     })();
   },[]);
@@ -338,22 +334,37 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
     setLocations(prev=>prev.map(loc=>{
       const cleaned={...loc.schedule};
       const keys=Object.keys(cleaned);
+      // Build a set of valid staff IDs for this location so we can prune orphan keys
+      const validIds=new Set((loc.staff||[]).map(s=>String(s.id)));
+
+      // Pass 0: prune schedule keys whose staffId doesn't exist in this location's staff list
+      // This removes any ghost entries that accumulated from stale/corrupt data
+      keys.forEach(key=>{
+        const parts=key.split('|');
+        if(parts.length<3) return;
+        const staffIdPart=parts[1];
+        if(!validIds.has(staffIdPart)) delete cleaned[key];
+      });
+
+      const cleanedKeys=Object.keys(cleaned);
 
       // Pass 1: build covererMap from reliefs[] on all lunch blocks
-      // covererStaffId+dayKey → ownerStaffId
+      // covererStaffId+dayKey → ownerStaffId — only for valid staff
       const covererMap={};
-      keys.forEach(key=>{
+      cleanedKeys.forEach(key=>{
         const [wisoStr,ownerId,dayStr]=key.split('|');
+        if(!validIds.has(String(ownerId))) return;
         (cleaned[key]?.blocks||[]).forEach(b=>{
           if(b.room!=='Lunch / Break') return;
           (b.reliefs||[]).forEach(r=>{
-            if(r.staffId) covererMap[`${wisoStr}|${r.staffId}|${dayStr}`]=String(ownerId);
+            if(r.staffId&&validIds.has(String(r.staffId)))
+              covererMap[`${wisoStr}|${r.staffId}|${dayStr}`]=String(ownerId);
           });
         });
       });
 
       // Pass 2: stamp reliefFor on any coverer block that's missing it
-      keys.forEach(key=>{
+      cleanedKeys.forEach(key=>{
         if(!cleaned[key]?.blocks) return;
         const ownerStaffId=covererMap[key];
         if(!ownerStaffId) return;
@@ -364,7 +375,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
       });
 
       // Pass 3: prune orphan lunch blocks (empty duplicates)
-      keys.forEach(key=>{
+      cleanedKeys.forEach(key=>{
         if(!cleaned[key]?.blocks) return;
         const allLunch=cleaned[key].blocks.filter(b=>b.room==='Lunch / Break');
         if(allLunch.length<=1) return;
@@ -381,7 +392,11 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
 
   useEffect(()=>{
     if(!loaded)return;
+    if(!dataLoadAttempted.current)return;
     if(isRemoteUpdate.current){ isRemoteUpdate.current=false; return; }
+    // Never save if every location has zero staff — that means real data never loaded
+    const hasAnyStaff=locations.some(l=>(l.staff||[]).length>0);
+    if(!hasAnyStaff)return;
     setSaveStatus("saving");
     const t=setTimeout(async()=>{
       try{ await window.storage.set("kcc-v1",JSON.stringify({locations,activeLocId,attendance})); setSaveStatus("saved"); setTimeout(()=>setSaveStatus(""),2200); }
@@ -550,10 +565,16 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
   // ── Quick-fill / Copy ─────────────────────────────────────────────────────
   // ── Shared helper: write relief blocks for all blocks in a schedule snapshot ──
   const propagateReliefs = (ns, blocks, sId, dayIdx, targetWiso) => {
+    const validStaffIds=new Set(staff.map(s=>String(s.id)));
     const srcName=staff.find(s=>String(s.id)===String(sId))?.name||"";
     blocks.forEach(b=>{
       (b.reliefs||[]).forEach(r=>{
         if(!r.staffId||!r.startTime||!r.endTime)return;
+        // Guard: only propagate to real staff members
+        if(!validStaffIds.has(String(r.staffId))){
+          console.warn(`KCC: propagateReliefs skipping invalid staffId=${r.staffId}`);
+          return;
+        }
         const rKey=`${targetWiso}|${r.staffId}|${dayIdx}`;
         const existing=(ns[rKey]?.blocks||[]).filter(rb=>rb.reliefBlockId!==r.id);
         const rStart=timeToMins(r.startTime);
@@ -576,6 +597,9 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
   // has a matching reliefs[] entry. Auto-creates the lunch block if missing.
   const IS_LUNCH_ROOM = r => r==="Lunch / Break";
   const reconcileReliefs = (ns) => {
+    // Build a fast lookup of valid staff IDs so we can reject garbage reliefFor values
+    const validStaffIds=new Set(staff.map(s=>String(s.id)));
+
     staff.forEach(coverer => {
       for(let dayIdx=0;dayIdx<7;dayIdx++){
         const key=`${wiso}|${coverer.id}|${dayIdx}`;
@@ -583,6 +607,13 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
         cell.blocks.forEach(b=>{
           if(!b.reliefFor||!b.startTime||!b.endTime) return;
           const srcId=String(b.reliefFor);
+
+          // Guard: reliefFor must point to a real staff member — ignore garbage values
+          if(!validStaffIds.has(srcId)){
+            console.warn(`KCC: block has reliefFor=${srcId} which is not a valid staff ID — skipping`);
+            return;
+          }
+
           const srcKey=`${wiso}|${srcId}|${dayIdx}`;
           const bStart=timeToMins(b.startTime), bEnd=timeToMins(b.endTime);
           if(!ns[srcKey]) ns[srcKey]={blocks:[]};
