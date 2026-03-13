@@ -349,7 +349,8 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
       const cleanedKeys=Object.keys(cleaned);
 
       // Pass 1: build covererMap from reliefs[] on all lunch blocks
-      // covererStaffId+dayKey → ownerStaffId — only for valid staff
+      // covererKey → [{ownerId, startMins, endMins}] — stores time range so Pass 2
+      // only stamps blocks that actually overlap the relief window, not all blocks.
       const covererMap={};
       cleanedKeys.forEach(key=>{
         const [wisoStr,ownerId,dayStr]=key.split('|');
@@ -357,20 +358,28 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
         (cleaned[key]?.blocks||[]).forEach(b=>{
           if(b.room!=='Lunch / Break') return;
           (b.reliefs||[]).forEach(r=>{
-            if(r.staffId&&validIds.has(String(r.staffId)))
-              covererMap[`${wisoStr}|${r.staffId}|${dayStr}`]=String(ownerId);
+            if(!r.staffId||!validIds.has(String(r.staffId))||!r.startTime||!r.endTime) return;
+            const cKey=`${wisoStr}|${r.staffId}|${dayStr}`;
+            if(!covererMap[cKey]) covererMap[cKey]=[];
+            covererMap[cKey].push({ownerId:String(ownerId),
+              startMins:timeToMins(r.startTime),endMins:timeToMins(r.endTime)});
           });
         });
       });
 
-      // Pass 2: stamp reliefFor on any coverer block that's missing it
+      // Pass 2: stamp reliefFor ONLY on coverer blocks that overlap the relief window.
+      // Critical: a staff member may have OTHER blocks (e.g. Dragonfly Room 11am-12pm)
+      // that must NOT get reliefFor just because they cover a lunch at 12pm-1pm.
       cleanedKeys.forEach(key=>{
         if(!cleaned[key]?.blocks) return;
-        const ownerStaffId=covererMap[key];
-        if(!ownerStaffId) return;
+        const entries=covererMap[key];
+        if(!entries?.length) return;
         cleaned[key]={...cleaned[key],blocks:cleaned[key].blocks.map(b=>{
-          if(b.reliefFor||HOURS_EXCLUDED_ROOMS.has(b.room)||!b.room) return b;
-          return {...b,reliefFor:ownerStaffId};
+          if(b.reliefFor||HOURS_EXCLUDED_ROOMS.has(b.room)||!b.room||!b.startTime||!b.endTime) return b;
+          const bStart=timeToMins(b.startTime), bEnd=timeToMins(b.endTime);
+          const match=entries.find(e=>bStart<e.endMins&&bEnd>e.startMins);
+          if(!match) return b;
+          return {...b,reliefFor:match.ownerId};
         })};
       });
 
