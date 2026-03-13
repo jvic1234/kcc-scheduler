@@ -1208,16 +1208,25 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
         orderedRooms.forEach(room=>{
           const raw=[];
 
-          // Build a lookup: for THIS room, who is covering whose lunch?
+          // Build a lookup: for THIS room, who is covering whose lunch — and for which exact time window?
+          // reliefCovererMap: covererStaffId → [{reliefFor, startMins, endMins}]
+          // We store an array because one person could theoretically cover multiple lunch owners.
           const reliefCovererMap={};
           staff.forEach(owner=>{
             (getCellData(owner.id,clampedInsightDayIdx)?.blocks||[]).forEach(lb=>{
               if(!IS_LUNCH_ROOM(lb.room||'')) return;
               (lb.reliefs||[]).forEach(r=>{
-                if(!r.staffId) return;
+                if(!r.staffId||!r.startTime||!r.endTime) return;
                 const covererBlocks=getCellData(r.staffId,clampedInsightDayIdx)?.blocks||[];
                 const hasBlockInThisRoom=covererBlocks.some(cb=>cb.room===room.name&&cb.startTime&&cb.endTime);
-                if(hasBlockInThisRoom) reliefCovererMap[String(r.staffId)]={reliefFor:owner.id};
+                if(!hasBlockInThisRoom) return;
+                const key=String(r.staffId);
+                if(!reliefCovererMap[key]) reliefCovererMap[key]=[];
+                reliefCovererMap[key].push({
+                  reliefFor:owner.id,
+                  startMins:timeToMins(r.startTime),
+                  endMins:timeToMins(r.endTime)
+                });
               });
             });
           });
@@ -1233,7 +1242,16 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
             (getCellData(s.id,clampedInsightDayIdx)?.blocks||[]).forEach(b=>{
               if(b.room===room.name&&b.startTime&&b.endTime){
                 const explicitRelief=b.reliefFor||null;
-                const inferredRelief=!explicitRelief?reliefCovererMap[String(s.id)]?.reliefFor:null;
+                // Infer reliefFor only if this block's time actually overlaps a specific relief window
+                // — prevents Mechell's regular 7:30-10am block from being flagged as relief
+                //   just because she also covers Melanie's 10-11am lunch
+                let inferredRelief=null;
+                if(!explicitRelief){
+                  const windows=reliefCovererMap[String(s.id)]||[];
+                  const bStart=timeToMins(b.startTime), bEnd=timeToMins(b.endTime);
+                  const match=windows.find(w=>w.startMins<bEnd&&w.endMins>bStart);
+                  if(match) inferredRelief=match.reliefFor;
+                }
                 const resolvedReliefFor=explicitRelief||inferredRelief||null;
                 raw.push({staffId:s.id,name:s.name,si,startTime:b.startTime,endTime:b.endTime,
                   blockId:b.id,
@@ -1261,6 +1279,8 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
             for(let i=0;i<sorted.length-1;i++){
               const gapStart=timeToMins(sorted[i].endTime), gapEnd=timeToMins(sorted[i+1].startTime);
               if(gapEnd<=gapStart) continue;
+              // Only flag gaps under 60 minutes — wider gaps are not lunch breaks
+              if(gapEnd-gapStart>=60) continue;
               // Find a Lunch/Break block for this staff in this gap
               const theirBlocks=getCellData(sId,clampedInsightDayIdx)?.blocks||[];
               const lunchBlock=theirBlocks.find(b=>IS_LUNCH_ROOM(b.room||'')&&b.startTime&&b.endTime&&
