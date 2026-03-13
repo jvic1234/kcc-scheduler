@@ -386,6 +386,16 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
         )};
       });
 
+      // Pass 4: migrate legacy __na__ sentinel → __nc__ in all relief entries
+      cleanedKeys.forEach(key=>{
+        if(!cleaned[key]?.blocks) return;
+        const updated=cleaned[key].blocks.map(b=>{
+          if(!(b.reliefs||[]).some(r=>String(r.staffId)==="__na__")) return b;
+          return {...b,reliefs:b.reliefs.map(r=>String(r.staffId)==="__na__"?{...r,staffId:"__nc__"}:r)};
+        });
+        cleaned[key]={...cleaned[key],blocks:updated};
+      });
+
       return {...loc,schedule:cleaned};
     }));
   },[loaded]);
@@ -570,8 +580,8 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
     blocks.forEach(b=>{
       (b.reliefs||[]).forEach(r=>{
         if(!r.staffId||!r.startTime||!r.endTime)return;
-        // N/C means explicitly no coverer — skip propagation
-        if(String(r.staffId)==="__nc__")return;
+        // N/C means explicitly no coverer — skip propagation (handle both __nc__ and legacy __na__)
+        if(isNCSentinel(r.staffId))return;
         // Guard: only propagate to real staff members
         if(!validStaffIds.has(String(r.staffId))){
           console.warn(`KCC: propagateReliefs skipping invalid staffId=${r.staffId}`);
@@ -598,6 +608,8 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
   // Scans every block with reliefFor set and ensures the source staff's lunch block
   // has a matching reliefs[] entry. Auto-creates the lunch block if missing.
   const IS_LUNCH_ROOM = r => r==="Lunch / Break";
+  // Treat both __nc__ (current) and __na__ (legacy pre-rename) as the "no coverage needed" sentinel
+  const isNCSentinel = id => String(id)==="__nc__"||String(id)==="__na__";
   const reconcileReliefs = (ns) => {
     // Build a fast lookup of valid staff IDs so we can reject garbage reliefFor values
     const validStaffIds=new Set(staff.map(s=>String(s.id)));
@@ -609,8 +621,8 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
         cell.blocks.forEach(b=>{
           if(!b.reliefFor||!b.startTime||!b.endTime) return;
           const srcId=String(b.reliefFor);
-          // N/C sentinel — no real coverer, nothing to reconcile
-          if(srcId==="__nc__") return;
+          // N/C sentinel — no real coverer, nothing to reconcile (handle both __nc__ and legacy __na__)
+          if(isNCSentinel(srcId)) return;
 
           // Guard: reliefFor must point to a real staff member — ignore garbage values
           if(!validStaffIds.has(srcId)){
@@ -785,8 +797,8 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
     // ── Write/update relief blocks into relief staff schedules ──
     const prevBlocks=getCellData(editCell.sId,editCell.dayIdx)?.blocks||[];
     const prevReliefKeys=new Set();
-    prevBlocks.forEach(b=>(b.reliefs||[]).forEach(r=>{if(r.staffId&&r.staffId!=="__nc__"&&r.id)prevReliefKeys.add(`${r.staffId}:${r.id}`);}));
-    valid.forEach(b=>(b.reliefs||[]).forEach(r=>{ if(r.staffId&&r.staffId!=="__nc__"&&r.id)prevReliefKeys.delete(`${r.staffId}:${r.id}`); }));
+    prevBlocks.forEach(b=>(b.reliefs||[]).forEach(r=>{if(r.staffId&&!isNCSentinel(r.staffId)&&r.id)prevReliefKeys.add(`${r.staffId}:${r.id}`);}));
+    valid.forEach(b=>(b.reliefs||[]).forEach(r=>{ if(r.staffId&&!isNCSentinel(r.staffId)&&r.id)prevReliefKeys.delete(`${r.staffId}:${r.id}`); }));
     propagateReliefs(ns,valid,editCell.sId,editCell.dayIdx,wiso);
 
     // Remove relief blocks for any relief assignments that were deleted
@@ -838,18 +850,14 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
   const updateBlockFields = (id,flds) => setEditBlocks(prev=>{ const u=prev.map(b=>b.id===id?{...b,...flds}:b); return 'startTime' in flds?sortBlocks(u):u; });
   const removeBlock = id => setEditBlocks(editBlocks.filter(b=>b.id!==id));
   const addBlock = () => {
-    // Find the largest gap between existing blocks and default the new block to that window.
-    // Falls back to appending after the last block if no gap exists.
+    // Find the largest gap BETWEEN existing blocks and default the new block to that window.
+    // Does NOT include the gap before the first block — that would place a lunch block at 5:30am.
+    // Falls back to appending after the last block if no inter-block gap exists.
     const scheduled = editBlocks.filter(b=>b.startTime&&b.endTime)
       .map(b=>({s:timeToMins(b.startTime),e:timeToMins(b.endTime)}))
       .sort((a,b)=>a.s-b.s);
     let bestStart=null, bestEnd=null, bestGap=0;
-    // Check gap before first block
-    if(scheduled.length&&scheduled[0].s>TL_START){
-      const g=scheduled[0].s-TL_START;
-      if(g>bestGap){bestGap=g;bestStart=minsToTime(TL_START);bestEnd=minsToTime(scheduled[0].s);}
-    }
-    // Check gaps between blocks
+    // Only check gaps between blocks (not before the first or after the last)
     for(let i=0;i<scheduled.length-1;i++){
       const g=scheduled[i+1].s-scheduled[i].e;
       if(g>bestGap){bestGap=g;bestStart=minsToTime(scheduled[i].e);bestEnd=minsToTime(scheduled[i+1].s);}
@@ -1257,8 +1265,8 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                 timeToMins(b.startTime)>=gapStart-15&&timeToMins(b.endTime)<=gapEnd+15);
               if(lunchBlock){
                 const reliefEntries=(lunchBlock.reliefs||[]).filter(r=>r.staffId&&r.startTime&&r.endTime);
-                const isNa=reliefEntries.length>0&&reliefEntries.every(r=>String(r.staffId)==="__nc__");
-                const hasRealRelief=reliefEntries.some(r=>String(r.staffId)!=="__nc__");
+                const isNa=reliefEntries.length>0&&reliefEntries.every(r=>isNCSentinel(r.staffId));
+                const hasRealRelief=reliefEntries.some(r=>!isNCSentinel(r.staffId));
                 gaps.push({staffId:sId,name:info.name,si:info.si,lane:info.lane,
                   gapStartMins:gapStart,gapEndMins:gapEnd,lunchBlockId:lunchBlock.id,
                   hasRelief:hasRealRelief,isNa});
@@ -1715,8 +1723,8 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                               {blocks.length?(
                                 <>
                                   {blocks.map(b=>{ const c=rc(b.room); 
-                                    // Find relief coverage for this block (break/excluded rooms)
-                                    const reliefCoverage=(b.reliefs||[]).filter(r=>r.staffId&&r.startTime&&r.endTime);
+                                    // Exclude N/C sentinels (__nc__ and legacy __na__) from coverage display
+                                    const reliefCoverage=(b.reliefs||[]).filter(r=>r.staffId&&r.startTime&&r.endTime&&!isNCSentinel(r.staffId));
                                     // Find what room this relief staff is covering from (for relief blocks)
                                     return(
                                     <div key={b.id} style={{background:c.bg,border:`1.5px solid ${c.border}`,borderRadius:7,padding:"4px 7px"}}>
@@ -2036,8 +2044,8 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                                     </select>
                                   </div>
                                 </div>
-                                {r.staffId&&r.staffId!=="__nc__"&&<div style={{marginTop:6,fontSize:10,fontWeight:700,color:"#65520A",background:"#FEF9C3",borderRadius:5,padding:"3px 7px"}}>✅ {staff.find(s=>String(s.id)===String(r.staffId))?.name} → added to their schedule</div>}
-                                {r.staffId==="__nc__"&&<div style={{marginTop:6,fontSize:10,fontWeight:700,color:"#475569",background:"#F1F5F9",borderRadius:5,padding:"3px 7px"}}>✅ No coverage needed — marked N/C</div>}
+                                {r.staffId&&!isNCSentinel(r.staffId)&&<div style={{marginTop:6,fontSize:10,fontWeight:700,color:"#65520A",background:"#FEF9C3",borderRadius:5,padding:"3px 7px"}}>✅ {staff.find(s=>String(s.id)===String(r.staffId))?.name} → added to their schedule</div>}
+                                {isNCSentinel(r.staffId)&&<div style={{marginTop:6,fontSize:10,fontWeight:700,color:"#475569",background:"#F1F5F9",borderRadius:5,padding:"3px 7px"}}>✅ No coverage needed — marked N/C</div>}
                                 {r.staffId&&r.staffId!=="__nc__"&&r.startTime&&(()=>{
                                   const rStart=timeToMins(r.startTime);
                                   const rMember=staff.find(s=>String(s.id)===String(r.staffId));
