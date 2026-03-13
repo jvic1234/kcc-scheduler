@@ -570,8 +570,8 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
     blocks.forEach(b=>{
       (b.reliefs||[]).forEach(r=>{
         if(!r.staffId||!r.startTime||!r.endTime)return;
-        // N/A means explicitly no coverer — skip propagation
-        if(String(r.staffId)==="__na__")return;
+        // N/C means explicitly no coverer — skip propagation
+        if(String(r.staffId)==="__nc__")return;
         // Guard: only propagate to real staff members
         if(!validStaffIds.has(String(r.staffId))){
           console.warn(`KCC: propagateReliefs skipping invalid staffId=${r.staffId}`);
@@ -609,8 +609,8 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
         cell.blocks.forEach(b=>{
           if(!b.reliefFor||!b.startTime||!b.endTime) return;
           const srcId=String(b.reliefFor);
-          // N/A sentinel — no real coverer, nothing to reconcile
-          if(srcId==="__na__") return;
+          // N/C sentinel — no real coverer, nothing to reconcile
+          if(srcId==="__nc__") return;
 
           // Guard: reliefFor must point to a real staff member — ignore garbage values
           if(!validStaffIds.has(srcId)){
@@ -785,8 +785,8 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
     // ── Write/update relief blocks into relief staff schedules ──
     const prevBlocks=getCellData(editCell.sId,editCell.dayIdx)?.blocks||[];
     const prevReliefKeys=new Set();
-    prevBlocks.forEach(b=>(b.reliefs||[]).forEach(r=>{if(r.staffId&&r.staffId!=="__na__"&&r.id)prevReliefKeys.add(`${r.staffId}:${r.id}`);}));
-    valid.forEach(b=>(b.reliefs||[]).forEach(r=>{ if(r.staffId&&r.staffId!=="__na__"&&r.id)prevReliefKeys.delete(`${r.staffId}:${r.id}`); }));
+    prevBlocks.forEach(b=>(b.reliefs||[]).forEach(r=>{if(r.staffId&&r.staffId!=="__nc__"&&r.id)prevReliefKeys.add(`${r.staffId}:${r.id}`);}));
+    valid.forEach(b=>(b.reliefs||[]).forEach(r=>{ if(r.staffId&&r.staffId!=="__nc__"&&r.id)prevReliefKeys.delete(`${r.staffId}:${r.id}`); }));
     propagateReliefs(ns,valid,editCell.sId,editCell.dayIdx,wiso);
 
     // Remove relief blocks for any relief assignments that were deleted
@@ -1257,8 +1257,8 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                 timeToMins(b.startTime)>=gapStart-15&&timeToMins(b.endTime)<=gapEnd+15);
               if(lunchBlock){
                 const reliefEntries=(lunchBlock.reliefs||[]).filter(r=>r.staffId&&r.startTime&&r.endTime);
-                const isNa=reliefEntries.length>0&&reliefEntries.every(r=>String(r.staffId)==="__na__");
-                const hasRealRelief=reliefEntries.some(r=>String(r.staffId)!=="__na__");
+                const isNa=reliefEntries.length>0&&reliefEntries.every(r=>String(r.staffId)==="__nc__");
+                const hasRealRelief=reliefEntries.some(r=>String(r.staffId)!=="__nc__");
                 gaps.push({staffId:sId,name:info.name,si:info.si,lane:info.lane,
                   gapStartMins:gapStart,gapEndMins:gapEnd,lunchBlockId:lunchBlock.id,
                   hasRelief:hasRealRelief,isNa});
@@ -1400,7 +1400,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                                 zIndex:1}}>
                               {!gap.hasRelief&&!gap.isNa&&<span style={{fontSize:9,fontWeight:800,color:"#92400E",background:"#FEF9C3",padding:"1px 5px",borderRadius:4,whiteSpace:"nowrap"}}>+ Add relief</span>}
                               {gap.hasRelief&&<span style={{fontSize:9,fontWeight:800,color:"#166534",background:"#DCFCE7",padding:"1px 5px",borderRadius:4,whiteSpace:"nowrap"}}>✓ Covered</span>}
-                              {gap.isNa&&<span style={{fontSize:9,fontWeight:800,color:"#475569",background:"#F1F5F9",padding:"1px 5px",borderRadius:4,whiteSpace:"nowrap"}}>N/A</span>}
+                              {gap.isNa&&<span style={{fontSize:9,fontWeight:800,color:"#475569",background:"#F1F5F9",padding:"1px 5px",borderRadius:4,whiteSpace:"nowrap"}}>N/C</span>}
                             </div>
                           );
                         })}
@@ -1996,7 +1996,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                                     style={{width:"100%",padding:"7px 9px",borderRadius:7,border:"2px solid #FCD34D",fontSize:12.5,fontWeight:700,outline:"none",background:"white",fontFamily:"inherit",cursor:"pointer",color:r.staffId?"#1C1C1C":"#94A3B8"}}
                                   >
                                     <option value="">— Select staff —</option>
-                                    <option value="__na__">N/A — No coverage needed</option>
+                                    <option value="__nc__">N/C — No coverage needed</option>
                                     {staff.filter(s=>{
                                       if(String(s.id)===String(editCell?.sId))return false;
                                       // Always keep the currently-selected staff member in the list —
@@ -2036,9 +2036,9 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                                     </select>
                                   </div>
                                 </div>
-                                {r.staffId&&r.staffId!=="__na__"&&<div style={{marginTop:6,fontSize:10,fontWeight:700,color:"#65520A",background:"#FEF9C3",borderRadius:5,padding:"3px 7px"}}>✅ {staff.find(s=>String(s.id)===String(r.staffId))?.name} → added to their schedule</div>}
-                                {r.staffId==="__na__"&&<div style={{marginTop:6,fontSize:10,fontWeight:700,color:"#475569",background:"#F1F5F9",borderRadius:5,padding:"3px 7px"}}>✅ No coverage needed — marked N/A</div>}
-                                {r.staffId&&r.staffId!=="__na__"&&r.startTime&&(()=>{
+                                {r.staffId&&r.staffId!=="__nc__"&&<div style={{marginTop:6,fontSize:10,fontWeight:700,color:"#65520A",background:"#FEF9C3",borderRadius:5,padding:"3px 7px"}}>✅ {staff.find(s=>String(s.id)===String(r.staffId))?.name} → added to their schedule</div>}
+                                {r.staffId==="__nc__"&&<div style={{marginTop:6,fontSize:10,fontWeight:700,color:"#475569",background:"#F1F5F9",borderRadius:5,padding:"3px 7px"}}>✅ No coverage needed — marked N/C</div>}
+                                {r.staffId&&r.staffId!=="__nc__"&&r.startTime&&(()=>{
                                   const rStart=timeToMins(r.startTime);
                                   const rMember=staff.find(s=>String(s.id)===String(r.staffId));
                                   const theirBlocks=rMember?getCellData(rMember.id,editCell?.dayIdx)?.blocks||[]:[];
