@@ -1838,7 +1838,7 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
           <div style={{background:"white",borderRadius:22,padding:28,width:520,maxWidth:"100%",boxShadow:"0 24px 64px rgba(0,0,0,0.28)",maxHeight:"92vh",overflowY:"auto"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20}}>
               <div>
-                <div style={{fontWeight:900,fontSize:13,color:\"#94A3B8\",letterSpacing:"0.3px",textTransform:"uppercase"}}>Edit Shift</div>
+                <div style={{fontWeight:900,fontSize:13,color:"#94A3B8",letterSpacing:"0.3px",textTransform:"uppercase"}}>Edit Shift</div>
                 <div style={{fontSize:20,color:"#1E293B",marginTop:2,fontWeight:800}}>{staff.find(s=>s.id===editCell.sId)?.name} &nbsp;·&nbsp; {formatDateLong(weekDates[editCell.dayIdx])}</div>
               </div>
               <button onClick={()=>setEditCell(null)} style={{background:"#F1F5F9",border:"none",borderRadius:8,width:30,height:30,cursor:"pointer",fontSize:18,color:"#64748B",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>×</button>
