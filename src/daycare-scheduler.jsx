@@ -570,13 +570,15 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
     blocks.forEach(b=>{
       (b.reliefs||[]).forEach(r=>{
         if(!r.staffId||!r.startTime||!r.endTime)return;
+        // N/A means explicitly no coverer — skip propagation
+        if(String(r.staffId)==="__na__")return;
         // Guard: only propagate to real staff members
         if(!validStaffIds.has(String(r.staffId))){
           console.warn(`KCC: propagateReliefs skipping invalid staffId=${r.staffId}`);
           return;
         }
         const rKey=`${targetWiso}|${r.staffId}|${dayIdx}`;
-        const existing=(ns[rKey]?.blocks||[]).filter(rb=>rb.reliefBlockId!==r.id);
+        const existing=(ns[rKey]?.blocks||[]).filter(rb=>String(rb.reliefBlockId)!==String(r.id));
         const rStart=timeToMins(r.startTime);
         const coveredRoom=blocks.find(sb=>
           sb.room&&!HOURS_EXCLUDED_ROOMS.has(sb.room)&&sb.room!=="Relief"&&
@@ -607,6 +609,8 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
         cell.blocks.forEach(b=>{
           if(!b.reliefFor||!b.startTime||!b.endTime) return;
           const srcId=String(b.reliefFor);
+          // N/A sentinel — no real coverer, nothing to reconcile
+          if(srcId==="__na__") return;
 
           // Guard: reliefFor must point to a real staff member — ignore garbage values
           if(!validStaffIds.has(srcId)){
@@ -763,16 +767,16 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
       Object.keys(ns).forEach(k=>{
         if(!ns[k]?.blocks)return;
         ns[k]={...ns[k],blocks:ns[k].blocks.map(srcBlock=>{
-          if(!(srcBlock.reliefs||[]).some(r=>r.id===origB.reliefBlockId))return srcBlock;
+          if(!(srcBlock.reliefs||[]).some(r=>String(r.id)===String(origB.reliefBlockId)))return srcBlock;
           if(stillPresent){
             // Update times if the block still exists
             const updatedB=valid.find(vb=>vb.id===origB.id);
             return {...srcBlock,reliefs:srcBlock.reliefs.map(r=>
-              r.id===origB.reliefBlockId?{...r,startTime:updatedB.startTime,endTime:updatedB.endTime}:r
+              String(r.id)===String(origB.reliefBlockId)?{...r,startTime:updatedB.startTime,endTime:updatedB.endTime}:r
             )};
           } else {
             // Block was deleted — remove from source's reliefs
-            return {...srcBlock,reliefs:srcBlock.reliefs.filter(r=>r.id!==origB.reliefBlockId)};
+            return {...srcBlock,reliefs:srcBlock.reliefs.filter(r=>String(r.id)!==String(origB.reliefBlockId))};
           }
         })};
       });
@@ -781,16 +785,19 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
     // ── Write/update relief blocks into relief staff schedules ──
     const prevBlocks=getCellData(editCell.sId,editCell.dayIdx)?.blocks||[];
     const prevReliefKeys=new Set();
-    prevBlocks.forEach(b=>(b.reliefs||[]).forEach(r=>{if(r.staffId&&r.id)prevReliefKeys.add(`${r.staffId}:${r.id}`);}));
-    valid.forEach(b=>(b.reliefs||[]).forEach(r=>{ if(r.staffId&&r.id)prevReliefKeys.delete(`${r.staffId}:${r.id}`); }));
+    prevBlocks.forEach(b=>(b.reliefs||[]).forEach(r=>{if(r.staffId&&r.staffId!=="__na__"&&r.id)prevReliefKeys.add(`${r.staffId}:${r.id}`);}));
+    valid.forEach(b=>(b.reliefs||[]).forEach(r=>{ if(r.staffId&&r.staffId!=="__na__"&&r.id)prevReliefKeys.delete(`${r.staffId}:${r.id}`); }));
     propagateReliefs(ns,valid,editCell.sId,editCell.dayIdx,wiso);
 
     // Remove relief blocks for any relief assignments that were deleted
     prevReliefKeys.forEach(k=>{
-      const [sId,rId]=k.split(":");
+      const [sId,...rest]=k.split(":");
+      const rId=rest.join(":"); // safe re-join in case ID somehow contained ":"
       const rKey=cellKey(sId,editCell.dayIdx);
       if(ns[rKey]?.blocks){
-        const remaining=ns[rKey].blocks.filter(rb=>rb.reliefBlockId!==rId);
+        // String-coerce both sides — reliefBlockId is stored as a number (from uid())
+        // but rId is always a string after split, so strict !== would never match
+        const remaining=ns[rKey].blocks.filter(rb=>String(rb.reliefBlockId)!==String(rId));
         if(remaining.length===0)delete ns[rKey]; else ns[rKey]={...ns[rKey],blocks:remaining};
       }
     });
@@ -807,8 +814,8 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
       Object.keys(ns).forEach(k=>{
         if(!ns[k]?.blocks)return;
         ns[k]={...ns[k],blocks:ns[k].blocks.map(srcBlock=>{
-          if(!(srcBlock.reliefs||[]).some(r=>r.id===b.reliefBlockId))return srcBlock;
-          return {...srcBlock,reliefs:srcBlock.reliefs.filter(r=>r.id!==b.reliefBlockId)};
+          if(!(srcBlock.reliefs||[]).some(r=>String(r.id)===String(b.reliefBlockId)))return srcBlock;
+          return {...srcBlock,reliefs:srcBlock.reliefs.filter(r=>String(r.id)!==String(b.reliefBlockId))};
         })};
       });
     });
@@ -1367,7 +1374,8 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                           const gTop=BLOCK_PAD+gap.lane*(BLOCK_H+BLOCK_PAD);
                           return(
                             <div key={gi}
-                              onClick={()=>{ openEdit(gap.staffId,clampedInsightDayIdx); }}
+                              onMouseDown={e=>e.stopPropagation()}
+                              onClick={e=>{ e.stopPropagation(); openEdit(gap.staffId,clampedInsightDayIdx); }}
                               title={gap.hasRelief?`${gap.name.split(" ")[0]}'s lunch — relief assigned`:`Click to assign relief for ${gap.name.split(" ")[0]}'s lunch`}
                               style={{position:"absolute",left:`${gLeft}%`,width:`${gWidth}%`,top:gTop,height:BLOCK_H,
                                 border:`2px dashed ${gap.hasRelief?"#86EFAC":"#FCD34D"}`,borderRadius:7,
@@ -1433,7 +1441,10 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                                 // Only fire click if no drag happened
                                 if(insDragPreview) return;
                                 e.stopPropagation();
-                                setShowInsights(true); openEdit(rb.staffId,clampedInsightDayIdx);
+                                // Relief blocks always open the lunch owner's edit, not the coverer's —
+                                // this prevents users accidentally editing Shirley's row when they mean Venus
+                                const editTargetId = rb.isRelief && rb.reliefFor ? rb.reliefFor : rb.staffId;
+                                setShowInsights(true); openEdit(editTargetId,clampedInsightDayIdx);
                               }}>
                               {/* Left resize handle */}
                               <div style={{width:8,height:"100%",cursor:"ew-resize",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",opacity:0.4}}>
@@ -1965,15 +1976,23 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                                     style={{width:"100%",padding:"7px 9px",borderRadius:7,border:"2px solid #FCD34D",fontSize:12.5,fontWeight:700,outline:"none",background:"white",fontFamily:"inherit",cursor:"pointer",color:r.staffId?"#1C1C1C":"#94A3B8"}}
                                   >
                                     <option value="">— Select staff —</option>
+                                    <option value="__na__">N/A — No coverage needed</option>
                                     {staff.filter(s=>{
                                       if(String(s.id)===String(editCell?.sId))return false;
+                                      // Always keep the currently-selected staff member in the list —
+                                      // otherwise they get filtered out by the busy-check because their
+                                      // relief block already exists in their saved schedule.
+                                      if(String(s.id)===String(r.staffId))return true;
                                       const alreadyPicked=reliefs.some(rv=>rv.id!==r.id&&String(rv.staffId)===String(s.id));
                                       if(alreadyPicked)return false;
                                       const reliefStart=timeToMins(r.startTime||effectiveBreakStartTime);
                                       const reliefEnd=timeToMins(r.endTime||block.endTime);
                                       const theirBlocks=getCellData(s.id,editCell?.dayIdx)?.blocks||[];
                                       const isBusy=theirBlocks.some(tb=>{
+                                        // Exclude their own relief block for this same lunch window —
+                                        // that block IS the assignment and shouldn't count as a conflict
                                         if(!tb.startTime||!tb.endTime||HOURS_EXCLUDED_ROOMS.has(tb.room))return false;
+                                        if(String(tb.reliefFor)===String(editCell?.sId))return false;
                                         const ts=timeToMins(tb.startTime),te=timeToMins(tb.endTime);
                                         return ts<reliefEnd&&te>reliefStart;
                                       });
@@ -1997,8 +2016,9 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                                     </select>
                                   </div>
                                 </div>
-                                {r.staffId&&<div style={{marginTop:6,fontSize:10,fontWeight:700,color:"#65520A",background:"#FEF9C3",borderRadius:5,padding:"3px 7px"}}>✅ {staff.find(s=>String(s.id)===String(r.staffId))?.name} → added to their schedule</div>}
-                                {r.staffId&&r.startTime&&(()=>{
+                                {r.staffId&&r.staffId!=="__na__"&&<div style={{marginTop:6,fontSize:10,fontWeight:700,color:"#65520A",background:"#FEF9C3",borderRadius:5,padding:"3px 7px"}}>✅ {staff.find(s=>String(s.id)===String(r.staffId))?.name} → added to their schedule</div>}
+                                {r.staffId==="__na__"&&<div style={{marginTop:6,fontSize:10,fontWeight:700,color:"#475569",background:"#F1F5F9",borderRadius:5,padding:"3px 7px"}}>✅ No coverage needed — marked N/A</div>}
+                                {r.staffId&&r.staffId!=="__na__"&&r.startTime&&(()=>{
                                   const rStart=timeToMins(r.startTime);
                                   const rMember=staff.find(s=>String(s.id)===String(r.staffId));
                                   const theirBlocks=rMember?getCellData(rMember.id,editCell?.dayIdx)?.blocks||[]:[];
