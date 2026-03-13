@@ -1318,13 +1318,16 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                 <div style={{flex:1,display:"flex"}}>
                   {weekDates.map((date,i)=>{ const isToday=date.toDateString()===new Date().toDateString(); const isActive=clampedInsightDayIdx===i; return(
                     <button key={i} onClick={()=>setInsightDayIdx(i)}
-                      style={{flex:1,padding:"10px 4px",background:isActive?"rgba(255,255,255,0.18)":isToday?"rgba(255,255,255,0.07)":"transparent",
-                        border:"none",borderRight:i<6?"1px solid rgba(255,255,255,0.08)":"none",cursor:"pointer",fontFamily:"inherit",position:"relative",
-                        outline:isActive?"2px solid rgba(255,255,255,0.5)":"none",outlineOffset:"-2px"}}>
-                      {isToday&&!isActive&&<div style={{position:"absolute",top:5,right:5,background:"#95D5B2",color:"#1B4332",fontSize:8,fontWeight:900,padding:"1px 5px",borderRadius:6}}>TODAY</div>}
-                      <div style={{fontSize:13,fontWeight:isActive?900:700,color:"white"}}>{DAY_SHORT[i]}</div>
-                      <div style={{fontSize:10,color:isActive?"rgba(255,255,255,0.9)":"rgba(255,255,255,0.55)",marginTop:1,fontWeight:500}}>{formatDate(date)}</div>
-                      {isActive&&<div style={{position:"absolute",bottom:0,left:"10%",right:"10%",height:3,background:"#95D5B2",borderRadius:"3px 3px 0 0"}}/>}
+                      style={{flex:1,padding:"10px 4px",
+                        background:isActive?"rgba(255,255,255,0.15)":isToday?"rgba(255,255,255,0.06)":"transparent",
+                        border:"none",
+                        borderRight:i<6?"1px solid rgba(255,255,255,0.08)":"none",
+                        borderBottom:isActive?"3px solid #F87171":"3px solid transparent",
+                        cursor:"pointer",fontFamily:"inherit",position:"relative",transition:"background 0.1s"}}>
+                      {isToday&&<div style={{position:"absolute",top:4,right:5,background:"#95D5B2",color:"#1B4332",fontSize:8,fontWeight:900,padding:"1px 5px",borderRadius:6}}>TODAY</div>}
+                      {isActive&&!isToday&&<div style={{position:"absolute",bottom:6,right:5,background:"#F87171",color:"white",fontSize:8,fontWeight:900,padding:"1px 5px",borderRadius:6}}>VIEWING</div>}
+                      <div style={{fontSize:13,fontWeight:isActive?900:700,color:isActive?"white":"rgba(255,255,255,0.7)"}}>{DAY_SHORT[i]}</div>
+                      <div style={{fontSize:10,color:isActive?"rgba(255,255,255,0.9)":"rgba(255,255,255,0.45)",marginTop:1,fontWeight:isActive?700:500}}>{formatDate(date)}</div>
                     </button>
                   ); })}
                 </div>
