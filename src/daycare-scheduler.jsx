@@ -837,7 +837,30 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
   const updateBlock       = (id,f,v)  => setEditBlocks(prev=>{ const u=prev.map(b=>b.id===id?{...b,[f]:v}:b); return f==='startTime'?sortBlocks(u):u; });
   const updateBlockFields = (id,flds) => setEditBlocks(prev=>{ const u=prev.map(b=>b.id===id?{...b,...flds}:b); return 'startTime' in flds?sortBlocks(u):u; });
   const removeBlock = id => setEditBlocks(editBlocks.filter(b=>b.id!==id));
-  const addBlock    = () => { const l=editBlocks[editBlocks.length-1]; setEditBlocks(sortBlocks([...editBlocks,newBlock(l?.endTime||"8:00 AM","4:00 PM","")])); };
+  const addBlock = () => {
+    // Find the largest gap between existing blocks and default the new block to that window.
+    // Falls back to appending after the last block if no gap exists.
+    const scheduled = editBlocks.filter(b=>b.startTime&&b.endTime)
+      .map(b=>({s:timeToMins(b.startTime),e:timeToMins(b.endTime)}))
+      .sort((a,b)=>a.s-b.s);
+    let bestStart=null, bestEnd=null, bestGap=0;
+    // Check gap before first block
+    if(scheduled.length&&scheduled[0].s>TL_START){
+      const g=scheduled[0].s-TL_START;
+      if(g>bestGap){bestGap=g;bestStart=minsToTime(TL_START);bestEnd=minsToTime(scheduled[0].s);}
+    }
+    // Check gaps between blocks
+    for(let i=0;i<scheduled.length-1;i++){
+      const g=scheduled[i+1].s-scheduled[i].e;
+      if(g>bestGap){bestGap=g;bestStart=minsToTime(scheduled[i].e);bestEnd=minsToTime(scheduled[i+1].s);}
+    }
+    if(bestStart&&bestEnd&&bestGap>=15){
+      setEditBlocks(sortBlocks([...editBlocks,newBlock(bestStart,bestEnd,"")]));
+    } else {
+      const l=editBlocks[editBlocks.length-1];
+      setEditBlocks(sortBlocks([...editBlocks,newBlock(l?.endTime||"8:00 AM","4:00 PM","")]));
+    }
+  };
   const moveBlock   = (i,dir) => { const a=[...editBlocks],sw=i+dir; if(sw<0||sw>=a.length)return; [a[i],a[sw]]=[a[sw],a[i]]; setEditBlocks(a); };
 
   // ── Staff ──────────────────────────────────────────────────────────────────
@@ -1243,9 +1266,12 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
               const lunchBlock=theirBlocks.find(b=>IS_LUNCH_ROOM(b.room||'')&&b.startTime&&b.endTime&&
                 timeToMins(b.startTime)>=gapStart-15&&timeToMins(b.endTime)<=gapEnd+15);
               if(lunchBlock){
-                const noRelief=!(lunchBlock.reliefs||[]).some(r=>r.staffId&&r.startTime&&r.endTime);
+                const reliefEntries=(lunchBlock.reliefs||[]).filter(r=>r.staffId&&r.startTime&&r.endTime);
+                const isNa=reliefEntries.length>0&&reliefEntries.every(r=>String(r.staffId)==="__na__");
+                const hasRealRelief=reliefEntries.some(r=>String(r.staffId)!=="__na__");
                 gaps.push({staffId:sId,name:info.name,si:info.si,lane:info.lane,
-                  gapStartMins:gapStart,gapEndMins:gapEnd,lunchBlockId:lunchBlock.id,hasRelief:!noRelief});
+                  gapStartMins:gapStart,gapEndMins:gapEnd,lunchBlockId:lunchBlock.id,
+                  hasRelief:hasRealRelief,isNa});
               }
             }
           });
@@ -1376,14 +1402,15 @@ export default function KidsConnectionScheduler({ userEmail="", onSignOut=()=>{}
                             <div key={gi}
                               onMouseDown={e=>e.stopPropagation()}
                               onClick={e=>{ e.stopPropagation(); openEdit(gap.staffId,clampedInsightDayIdx); }}
-                              title={gap.hasRelief?`${gap.name.split(" ")[0]}'s lunch — relief assigned`:`Click to assign relief for ${gap.name.split(" ")[0]}'s lunch`}
+                              title={gap.isNa?`${gap.name.split(" ")[0]}'s lunch — no coverage needed`:gap.hasRelief?`${gap.name.split(" ")[0]}'s lunch — relief assigned`:`Click to assign relief for ${gap.name.split(" ")[0]}'s lunch`}
                               style={{position:"absolute",left:`${gLeft}%`,width:`${gWidth}%`,top:gTop,height:BLOCK_H,
-                                border:`2px dashed ${gap.hasRelief?"#86EFAC":"#FCD34D"}`,borderRadius:7,
-                                background:gap.hasRelief?"rgba(134,239,172,0.08)":"rgba(252,211,77,0.12)",
+                                border:`2px dashed ${gap.isNa?"#94A3B8":gap.hasRelief?"#86EFAC":"#FCD34D"}`,borderRadius:7,
+                                background:gap.isNa?"rgba(148,163,184,0.08)":gap.hasRelief?"rgba(134,239,172,0.08)":"rgba(252,211,77,0.12)",
                                 boxSizing:"border-box",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:4,
                                 zIndex:1}}>
-                              {!gap.hasRelief&&<span style={{fontSize:9,fontWeight:800,color:"#92400E",background:"#FEF9C3",padding:"1px 5px",borderRadius:4,whiteSpace:"nowrap"}}>+ Add relief</span>}
+                              {!gap.hasRelief&&!gap.isNa&&<span style={{fontSize:9,fontWeight:800,color:"#92400E",background:"#FEF9C3",padding:"1px 5px",borderRadius:4,whiteSpace:"nowrap"}}>+ Add relief</span>}
                               {gap.hasRelief&&<span style={{fontSize:9,fontWeight:800,color:"#166534",background:"#DCFCE7",padding:"1px 5px",borderRadius:4,whiteSpace:"nowrap"}}>✓ Covered</span>}
+                              {gap.isNa&&<span style={{fontSize:9,fontWeight:800,color:"#475569",background:"#F1F5F9",padding:"1px 5px",borderRadius:4,whiteSpace:"nowrap"}}>N/A</span>}
                             </div>
                           );
                         })}
