@@ -69,15 +69,7 @@ export default async function handler(req, res) {
               and your schedule will automatically update every time it changes.
             </p>
 
-            <!-- Subscribe button -->
-            <div style="text-align:center;margin:24px 0;">
-              <a href="${webcalUrl}" style="display:inline-block;background:#1E3A8A;color:white;text-decoration:none;padding:14px 32px;border-radius:12px;font-size:15px;font-weight:800;letter-spacing:0.2px;">
-                📅 Subscribe to My Schedule
-              </a>
-              <p style="margin:8px 0 0;font-size:11px;color:#94A3B8;">Tap this button on your phone</p>
-            </div>
-
-            <hr style="border:none;border-top:1.5px solid #E8F3E8;margin:28px 0;"/>
+            <hr style="border:none;border-top:1.5px solid #E8F3E8;margin:0 0 20px;"/>
 
             <!-- iPhone instructions -->
             <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
@@ -85,12 +77,17 @@ export default async function handler(req, res) {
                 <td style="background:#F8FAFF;border:1.5px solid #DBEAFE;border-radius:12px;padding:18px;">
                   <div style="font-size:15px;font-weight:800;color:#1E3A8A;margin-bottom:12px;">🍎 iPhone Instructions</div>
                   <ol style="margin:0;padding-left:18px;color:#374151;font-size:13px;line-height:2;">
-                    <li>Tap the <strong>"Subscribe to My Schedule"</strong> button above</li>
+                    <li>Tap the blue <strong>"Add to iPhone Calendar"</strong> button below</li>
                     <li>Your iPhone will open <strong>Apple Calendar</strong> automatically</li>
                     <li>A popup asks <em>"Subscribe to Calendar?"</em> — tap <strong>Subscribe</strong></li>
                     <li>Tap <strong>Add</strong> to confirm</li>
                     <li>Your shifts will appear in a new <strong>"Work Schedule"</strong> calendar ✅</li>
                   </ol>
+                  <div style="text-align:center;margin:16px 0 8px;">
+                    <a href="${webcalUrl}" style="display:inline-block;background:#1E3A8A;color:white;text-decoration:none;padding:12px 28px;border-radius:12px;font-size:14px;font-weight:800;letter-spacing:0.2px;">
+                      📅 Add to iPhone Calendar
+                    </a>
+                  </div>
                   <p style="margin:10px 0 0;font-size:12px;color:#64748B;background:white;padding:8px 12px;border-radius:8px;border:1px solid #DBEAFE;">
                     💡 <strong>Tip:</strong> If tapping the button doesn't open Calendar, copy the link and go to
                     <em>Settings → Calendar → Accounts → Add Account → Other → Add Subscribed Calendar</em>
