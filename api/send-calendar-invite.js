@@ -145,7 +145,7 @@ export default async function handler(req, res) {
 
   try {
     const { data, error } = await resend.emails.send({
-      from:    "Kids Connection Childcare <noreply@kcchildcare.ca>",
+      from:    "Kids Connection Childcare <noreply@team.kcchildcare.ca>",
       to:      [toEmail],
       subject: `📅 Your Work Schedule — Subscribe to Your Calendar`,
       html:    htmlBody,
